@@ -1461,21 +1461,20 @@ impl<T> Term<T> {
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
         let grid = &self.grid;
 
-        (*y0..*y1)
-            .into_iter()
-            .rev()
-            .flat_map(|y| {
-                let row = &grid[y];
+        let mut s = String::with_capacity(*(y1 - y0) * *grid.cols());
 
-                row[..Column(row.occ)].iter().map(|cell| cell.c).chain(
-                    if row.occ == 0 || row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
-                        None
-                    } else {
-                        Some('\n')
-                    },
-                )
-            })
-            .collect()
+        for y in (*y0..*y1).rev() {
+            let row = &grid[y];
+
+            for x in 0..row.occ {
+                s.push(row[Column(x)].c);
+            }
+
+            if row.occ != 0 && !row.last().unwrap().flags.contains(Flags::WRAPLINE) {
+                s.push('\n');
+            }
+        }
+        s
     }
 
     pub fn grid_to_string_only_visible(&self) -> String {
