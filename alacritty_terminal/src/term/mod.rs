@@ -10,6 +10,7 @@ use std::{io, iter, mem, ptr, str};
 use log::{debug, trace};
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
+use rayon::prelude::*;
 
 use crate::ansi::{
     self, Attr, CharsetIndex, Color, CursorShape, CursorStyle, Handler, NamedColor, StandardCharset,
@@ -1457,10 +1458,12 @@ impl<T> Term<T> {
             rendered: false,
         }
     }
+}
 
+impl<T: Send + Sync> Term<T> {
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
-        let mut s = String::with_capacity(*self.grid.cols() * self.grid.total_lines());
-        for y in (*y0..*y1).rev() {
+        (*y0..*y1).into_par_iter().rev().map(|y| {
+            let mut s = String::with_capacity(*self.grid.cols());
             let row = &self.grid[y];
             for x in 0..*self.grid.cols() {
                 let cell = &row[Column(x)];
@@ -1469,8 +1472,8 @@ impl<T> Term<T> {
             if !row[self.grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
                 s.push('\n');
             }
-        }
-        s
+            s
+        }).collect()
     }
 
     pub fn grid_to_string_only_visible(&self) -> String {
