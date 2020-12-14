@@ -1461,13 +1461,16 @@ impl<T> Term<T> {
 
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
         let grid = &self.grid;
+        // Use rayon to iterate over each row.
         (*y0..*y1).into_par_iter().rev().map(|y| {
+            // Create a String and fill it with the contents of the current row.
             let mut s = String::with_capacity(*grid.cols());
             let row = &grid[y];
             for x in 0..*grid.cols() {
                 let cell = &row[Column(x)];
                 s.push(cell.c);
             }
+            // Add a newline if the current line does not wrap.
             if !row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
                 s.push('\n');
             }
