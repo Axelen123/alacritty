@@ -1458,18 +1458,17 @@ impl<T> Term<T> {
             rendered: false,
         }
     }
-}
 
-impl<T: Send + Sync> Term<T> {
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
+        let grid = &self.grid;
         (*y0..*y1).into_par_iter().rev().map(|y| {
-            let mut s = String::with_capacity(*self.grid.cols());
-            let row = &self.grid[y];
-            for x in 0..*self.grid.cols() {
+            let mut s = String::with_capacity(*grid.cols());
+            let row = &grid[y];
+            for x in 0..*grid.cols() {
                 let cell = &row[Column(x)];
                 s.push(cell.c);
             }
-            if !row[self.grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
+            if !row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
                 s.push('\n');
             }
             s
