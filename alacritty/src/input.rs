@@ -172,7 +172,7 @@ impl<T: EventListener> Execute<T> for Action {
                 });
 
                 spawn(move || {
-                    start_daemon(&program, &args, input_str.as_ref().map(|s| s.trim_end()))
+                    start_daemon(&program, &args, input_str.as_deref());
                 });
             },
             Action::ClearSelection => ctx.clear_selection(),
