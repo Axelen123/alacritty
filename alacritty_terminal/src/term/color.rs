@@ -165,7 +165,7 @@ impl FromStr for Rgb {
                 color >>= 8;
                 let r = color as u8;
                 Ok(Rgb { r, g, b })
-            }
+            },
             Err(_) => Err(()),
         }
     }
@@ -296,7 +296,7 @@ impl List {
                 self[ansi::NamedColor::DimMagenta] = dim.magenta;
                 self[ansi::NamedColor::DimCyan] = dim.cyan;
                 self[ansi::NamedColor::DimWhite] = dim.white;
-            }
+            },
             None => {
                 trace!("Deriving dim colors from normal colors");
                 self[ansi::NamedColor::DimBlack] = colors.normal().black * DIM_FACTOR;
@@ -307,7 +307,7 @@ impl List {
                 self[ansi::NamedColor::DimMagenta] = colors.normal().magenta * DIM_FACTOR;
                 self[ansi::NamedColor::DimCyan] = colors.normal().cyan * DIM_FACTOR;
                 self[ansi::NamedColor::DimWhite] = colors.normal().white * DIM_FACTOR;
-            }
+            },
         }
     }
 

@@ -78,14 +78,14 @@ impl<'de> Deserialize<'de> for ScrollingHistory {
                 } else {
                     Ok(ScrollingHistory(lines))
                 }
-            }
+            },
             Err(err) => {
                 error!(
                     target: LOG_TARGET_CONFIG,
                     "Problem with config: {}; using default value", err
                 );
                 Ok(Default::default())
-            }
+            },
         }
     }
 }
