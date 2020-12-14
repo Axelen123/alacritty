@@ -1457,6 +1457,32 @@ impl<T> Term<T> {
             rendered: false,
         }
     }
+
+    fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
+        let mut s = String::with_capacity(*self.grid.cols() * self.grid.total_lines());
+        for y in (*y0..*y1).rev() {
+            let row = &self.grid[y];
+            for x in 0..*self.grid.cols() {
+                let cell = &row[Column(x)];
+                s.push(cell.c);
+            }
+            if !row[self.grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
+                s.push('\n');
+            }
+        }
+        s
+    }
+
+    pub fn grid_to_string_only_visible(&self) -> String {
+        self.grid_to_string_between(Line(self.grid.display_offset()), self.grid.screen_lines())
+    }
+
+    pub fn grid_to_string(&self) -> String {
+        self.grid_to_string_between(
+            Line(0),
+            Line(*self.grid.screen_lines() + self.grid.history_size()),
+        )
+    }
 }
 
 impl<T> Dimensions for Term<T> {
@@ -2823,6 +2849,51 @@ mod tests {
         term.title = Some("Test".into());
         term.set_title(None);
         assert_eq!(term.title, None);
+    }
+
+    #[test]
+    fn to_string() {
+        let mut grid = Grid::<Cell>::new(Line(4), Column(4), 1);
+        grid[Line(0)][Column(0)].c = '1';
+        grid[Line(0)][Column(1)].c = '2';
+        grid[Line(0)][Column(2)].c = '3';
+        grid[Line(0)][Column(3)].c = '4';
+
+        grid[Line(1)][Column(0)].c = '5';
+        grid[Line(1)][Column(1)].c = '6';
+        grid[Line(1)][Column(2)].c = '7';
+        grid[Line(1)][Column(3)].c = '8';
+        grid[Line(1)][Column(3)].flags.insert(Flags::WRAPLINE);
+
+        grid[Line(2)][Column(0)].c = 'a';
+        grid[Line(2)][Column(1)].c = 'b';
+        grid[Line(2)][Column(2)].c = 'c';
+        grid[Line(2)][Column(3)].c = 'd';
+
+        grid[Line(3)][Column(0)].c = 'e';
+        grid[Line(3)][Column(1)].c = 'f';
+        grid[Line(3)][Column(2)].c = 'g';
+        grid[Line(3)][Column(3)].c = 'h';
+
+        let size = SizeInfo::new(
+            21.0,
+            51.0,
+            3.0,
+            3.0,
+            0.0,
+            0.0,
+            false
+        );
+        let mut term = Term::new(&MockConfig::default(), size, Mock);
+        mem::swap(&mut term.grid, &mut grid);
+
+        assert_eq!(term.grid_to_string(), "1234\n5678abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(), "1234\n5678abcd\nefgh\n");
+
+        term.grid.scroll_up(&(Line(0)..Line(4)), Line(1));
+
+        assert_eq!(term.grid_to_string(), "1234\n5678abcd\nefgh\n    \n");
+        assert_eq!(term.grid_to_string_only_visible(), "5678abcd\nefgh\n    \n");
     }
 
     #[test]

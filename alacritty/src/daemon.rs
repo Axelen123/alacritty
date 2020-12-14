@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::fmt::Debug;
-use std::io;
+use std::io::{self, Write};
 #[cfg(not(windows))]
 use std::os::unix::process::CommandExt;
 #[cfg(windows)]
@@ -13,19 +13,19 @@ use log::{debug, warn};
 use winapi::um::winbase::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
 
 /// Start the daemon and log error on failure.
-pub fn start_daemon<I, S>(program: &str, args: I)
+pub fn start_daemon<I, S>(program: &str, args: I, input: Option<String>)
 where
     I: IntoIterator<Item = S> + Debug + Copy,
     S: AsRef<OsStr>,
 {
-    match spawn_daemon(program, args) {
+    match spawn_daemon(program, args, input) {
         Ok(_) => debug!("Launched {} with args {:?}", program, args),
         Err(_) => warn!("Unable to launch {} with args {:?}", program, args),
     }
 }
 
 #[cfg(windows)]
-fn spawn_daemon<I, S>(program: &str, args: I) -> io::Result<()>
+fn spawn_daemon<I, S>(program: &str, args: I, input: Option<String>) -> io::Result<()>
 where
     I: IntoIterator<Item = S> + Copy,
     S: AsRef<OsStr>,
@@ -34,26 +34,30 @@ where
     // CREATE_NEW_PROCESS_GROUP and CREATE_NO_WINDOW has the effect
     // that console applications will run without opening a new
     // console window.
-    Command::new(program)
+    let mut child = Command::new(program)
         .args(args)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW)
-        .spawn()
-        .map(|_| ())
+        .spawn()?;
+    if let Some(s) = input {
+        let stdin = child.stdin.as_mut().unwrap();
+        stdin.write_all(s.as_bytes())?;
+    }
+    Ok(())
 }
 
 #[cfg(not(windows))]
-fn spawn_daemon<I, S>(program: &str, args: I) -> io::Result<()>
+fn spawn_daemon<I, S>(program: &str, args: I, input: Option<String>) -> io::Result<()>
 where
     I: IntoIterator<Item = S> + Copy,
     S: AsRef<OsStr>,
 {
     unsafe {
-        Command::new(program)
+        let mut child = Command::new(program)
             .args(args)
-            .stdin(Stdio::null())
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .pre_exec(|| {
@@ -69,7 +73,12 @@ where
 
                 Ok(())
             })
-            .spawn()?
+            .spawn()?;
+        if let Some(s) = input {
+            let stdin = child.stdin.as_mut().unwrap();
+            stdin.write_all(s.as_bytes())?;
+        }
+        child
             .wait()
             .map(|_| ())
     }

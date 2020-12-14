@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use std::cmp::{max, min, Ordering};
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
+use std::thread::spawn;
 
 use log::trace;
 
@@ -30,6 +31,7 @@ use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::mode::TermMode;
 use alacritty_terminal::term::{ClipboardType, SizeInfo, Term};
 use alacritty_terminal::vi_mode::ViMotion;
+use alacritty_terminal::config::CommandInput;
 
 use crate::clipboard::Clipboard;
 use crate::config::{Action, Binding, Config, Key, ViAction};
@@ -104,6 +106,8 @@ pub trait ActionContext<T: EventListener> {
     fn search_direction(&self) -> Direction;
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self);
+    fn to_string(&self) -> String;
+    fn to_string_only_visible(&self) -> String;
 }
 
 trait Execute<T: EventListener> {
@@ -156,12 +160,18 @@ impl<T: EventListener> Execute<T> for Action {
                 let text = ctx.clipboard_mut().load(ClipboardType::Selection);
                 paste(ctx, &text);
             },
-            Action::Command(ref program) => {
-                let args = program.args();
-                let program = program.program();
+            Action::Command(ref cmd) => {
+                let args = cmd.args().to_owned();
+                let input = cmd.input();
+                let program = cmd.program().to_string();
                 trace!("Running command {} with args {:?}", program, args);
 
-                start_daemon(program, args);
+                let input_str = input.map(|i| match i {
+                    CommandInput::VisibleText => ctx.to_string_only_visible(),
+                    CommandInput::AllText => ctx.to_string(),
+                });
+
+                spawn(move || start_daemon(&program, &args, input_str));
             },
             Action::ClearSelection => ctx.clear_selection(),
             Action::ToggleViMode => ctx.terminal_mut().toggle_vi_mode(),
@@ -1266,6 +1276,14 @@ mod tests {
 
         fn on_typing_start(&mut self) {
             unimplemented!();
+        }
+
+        fn to_string(&self) -> String {
+            self.terminal.grid_to_string()
+        }
+
+        fn to_string_only_visible(&self) -> String {
+            self.terminal.grid_to_string_only_visible()
         }
     }
 
