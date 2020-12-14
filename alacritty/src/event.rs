@@ -240,11 +240,11 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         match &mut self.terminal.selection {
             Some(selection) if selection.ty == ty && !selection.is_empty() => {
                 self.clear_selection();
-            },
+            }
             Some(selection) if !selection.is_empty() => {
                 selection.ty = ty;
                 self.terminal.dirty = true;
-            },
+            }
             _ => self.start_selection(ty, point, side),
         }
     }
@@ -485,7 +485,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
                 Direction::Right => *regex_match.end(),
                 Direction::Left => {
                     regex_match.start().sub_absolute(self.terminal, Boundary::Wrap, 1)
-                },
+                }
             };
             self.terminal.scroll_to_point(origin);
 
@@ -646,7 +646,7 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
 
                 // Since we found a result, we require no delayed re-search.
                 self.scheduler.unschedule(TimerId::DelayedSearch);
-            },
+            }
             // Reset viewport only when we know there is no match, to prevent unnecessary jumping.
             None if limit.is_none() => self.search_reset_state(),
             None => {
@@ -662,7 +662,7 @@ impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
 
                 // Clear focused match.
                 self.search_state.focused_match = None;
-            },
+            }
         }
 
         self.search_state.regex = Some(regex);
@@ -884,7 +884,7 @@ impl<N: Notify + OnResize> Processor<N> {
                 GlutinEvent::UserEvent(Event::TerminalEvent(TerminalEvent::Exit)) => {
                     *control_flow = ControlFlow::Exit;
                     return;
-                },
+                }
                 // Process events.
                 GlutinEvent::RedrawEventsCleared => {
                     *control_flow = match scheduler.update(&mut self.event_queue) {
@@ -895,7 +895,7 @@ impl<N: Notify + OnResize> Processor<N> {
                     if self.event_queue_empty() {
                         return;
                     }
-                },
+                }
                 // Remap DPR change event to remove lifetime.
                 GlutinEvent::WindowEvent {
                     event: WindowEvent::ScaleFactorChanged { scale_factor, new_inner_size },
@@ -905,7 +905,7 @@ impl<N: Notify + OnResize> Processor<N> {
                     let size = (new_inner_size.width, new_inner_size.height);
                     self.event_queue.push(Event::DPRChanged(scale_factor, size).into());
                     return;
-                },
+                }
                 // Transmute to extend lifetime, which exists only for `ScaleFactorChanged` event.
                 // Since we remap that event to remove the lifetime, this is safe.
                 event => unsafe {
@@ -1010,52 +1010,53 @@ impl<N: Notify + OnResize> Processor<N> {
 
                     processor.ctx.window.dpr = scale_factor;
                     processor.ctx.terminal.dirty = true;
-                },
+                }
                 Event::Message(message) => {
                     processor.ctx.message_buffer.push(message);
                     processor.ctx.display_update_pending.dirty = true;
                     processor.ctx.terminal.dirty = true;
-                },
+                }
                 Event::SearchNext => processor.ctx.goto_match(None),
                 Event::ConfigReload(path) => Self::reload_config(&path, processor),
                 Event::Scroll(scroll) => processor.ctx.scroll(scroll),
                 Event::BlinkCursor => {
                     *processor.ctx.cursor_hidden ^= true;
                     processor.ctx.terminal.dirty = true;
-                },
+                }
                 Event::TerminalEvent(event) => match event {
                     TerminalEvent::Title(title) => {
                         let ui_config = &processor.ctx.config.ui_config;
                         if ui_config.dynamic_title() {
                             processor.ctx.window.set_title(&title);
                         }
-                    },
+                    }
                     TerminalEvent::ResetTitle => {
                         let ui_config = &processor.ctx.config.ui_config;
                         if ui_config.dynamic_title() {
                             processor.ctx.window.set_title(&ui_config.window.title);
                         }
-                    },
+                    }
                     TerminalEvent::Wakeup => processor.ctx.terminal.dirty = true,
                     TerminalEvent::Bell => {
                         let bell_command = processor.ctx.config.bell().command.as_ref();
-                        let _ = bell_command.map(|cmd| start_daemon(cmd.program(), cmd.args(), None));
+                        let _ =
+                            bell_command.map(|cmd| start_daemon(cmd.program(), cmd.args(), None));
                         if processor.ctx.terminal.mode().contains(TermMode::URGENCY_HINTS) {
                             processor.ctx.window.set_urgent(!processor.ctx.terminal.is_focused);
                         }
-                    },
+                    }
                     TerminalEvent::ClipboardStore(clipboard_type, content) => {
                         processor.ctx.clipboard.store(clipboard_type, content);
-                    },
+                    }
                     TerminalEvent::ClipboardLoad(clipboard_type, format) => {
                         let text = format(processor.ctx.clipboard.load(clipboard_type).as_str());
                         processor.ctx.write_to_pty(text.into_bytes());
-                    },
+                    }
                     TerminalEvent::MouseCursorDirty => processor.reset_mouse_cursor(),
                     TerminalEvent::Exit => (),
                     TerminalEvent::CursorBlinkingChange(_) => {
                         processor.ctx.update_cursor_blinking();
-                    },
+                    }
                 },
             },
             GlutinEvent::RedrawRequested(_) => processor.ctx.terminal.dirty = true,
@@ -1074,27 +1075,27 @@ impl<N: Notify + OnResize> Processor<N> {
 
                         processor.ctx.display_update_pending.set_dimensions(size);
                         processor.ctx.terminal.dirty = true;
-                    },
+                    }
                     WindowEvent::KeyboardInput { input, is_synthetic: false, .. } => {
                         processor.key_input(input);
-                    },
+                    }
                     WindowEvent::ReceivedCharacter(c) => processor.received_char(c),
                     WindowEvent::MouseInput { state, button, .. } => {
                         processor.ctx.window.set_mouse_visible(true);
                         processor.mouse_input(state, button);
                         processor.ctx.terminal.dirty = true;
-                    },
+                    }
                     WindowEvent::ModifiersChanged(modifiers) => {
                         processor.modifiers_input(modifiers)
-                    },
+                    }
                     WindowEvent::CursorMoved { position, .. } => {
                         processor.ctx.window.set_mouse_visible(true);
                         processor.mouse_moved(position);
-                    },
+                    }
                     WindowEvent::MouseWheel { delta, phase, .. } => {
                         processor.ctx.window.set_mouse_visible(true);
                         processor.mouse_wheel_input(delta, phase);
-                    },
+                    }
                     WindowEvent::Focused(is_focused) => {
                         if window_id == processor.ctx.window.window_id() {
                             processor.ctx.terminal.is_focused = is_focused;
@@ -1109,18 +1110,18 @@ impl<N: Notify + OnResize> Processor<N> {
                             processor.ctx.update_cursor_blinking();
                             processor.on_focus_change(is_focused);
                         }
-                    },
+                    }
                     WindowEvent::DroppedFile(path) => {
                         let path: String = path.to_string_lossy().into();
                         processor.ctx.write_to_pty((path + " ").into_bytes());
-                    },
+                    }
                     WindowEvent::CursorLeft { .. } => {
                         processor.ctx.mouse.inside_text_area = false;
 
                         if processor.highlighted_url.is_some() {
                             processor.ctx.terminal.dirty = true;
                         }
-                    },
+                    }
                     WindowEvent::KeyboardInput { is_synthetic: true, .. }
                     | WindowEvent::TouchpadPressure { .. }
                     | WindowEvent::ScaleFactorChanged { .. }
@@ -1133,7 +1134,7 @@ impl<N: Notify + OnResize> Processor<N> {
                     | WindowEvent::Touch(_)
                     | WindowEvent::Moved(_) => (),
                 }
-            },
+            }
             GlutinEvent::Suspended { .. }
             | GlutinEvent::NewEvents { .. }
             | GlutinEvent::DeviceEvent { .. }

@@ -78,8 +78,6 @@ where
             let stdin = child.stdin.as_mut().unwrap();
             stdin.write_all(s.as_bytes())?;
         }
-        child
-            .wait()
-            .map(|_| ())
+        child.wait().map(|_| ())
     }
 }

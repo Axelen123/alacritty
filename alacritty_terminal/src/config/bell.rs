@@ -62,7 +62,7 @@ where
             );
 
             Ok(DEFAULT_BELL_COLOR)
-        },
+        }
     }
 }
 
@@ -83,7 +83,7 @@ where
         Err(err) => {
             error!(target: LOG_TARGET_CONFIG, "Problem with config: {}; ignoring field", err);
             Ok(None)
-        },
+        }
     }
 }
 

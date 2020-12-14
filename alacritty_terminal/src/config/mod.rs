@@ -198,7 +198,7 @@ where
             );
 
             Ok(Percentage::new(DEFAULT_CURSOR_THICKNESS))
-        },
+        }
     }
 }
 
@@ -236,7 +236,7 @@ impl From<ConfigCursorStyle> for CursorStyle {
             ConfigCursorStyle::Shape(shape) => Self { shape, blinking: false },
             ConfigCursorStyle::WithBlinking { shape, blinking } => {
                 Self { shape, blinking: blinking.into() }
-            },
+            }
         }
     }
 }
@@ -286,7 +286,7 @@ pub enum Program {
         #[serde(default, deserialize_with = "failure_default")]
         args: Vec<String>,
         #[serde(default, deserialize_with = "failure_default")]
-        input: Option<CommandInput>
+        input: Option<CommandInput>,
     },
 }
 
