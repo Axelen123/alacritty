@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use std::{io, iter, mem, ptr, str};
 
 use log::{debug, trace};
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
 
@@ -1463,12 +1462,12 @@ impl<T> Term<T> {
         let grid = &self.grid;
 
         (*y0..*y1)
-            .into_par_iter()
+            .into_iter()
             .rev()
             .flat_map(|y| {
                 let row = &grid[y];
 
-                row[..Column(row.occ)].into_par_iter().map(|cell| cell.c).chain(
+                row[..Column(row.occ)].iter().map(|cell| cell.c).chain(
                     if row.occ == 0 || row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
                         None
                     } else {
