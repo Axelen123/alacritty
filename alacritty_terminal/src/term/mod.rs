@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 use std::{io, iter, mem, ptr, str};
 
 use log::{debug, trace};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
-use rayon::prelude::*;
 
 use crate::ansi::{
     self, Attr, CharsetIndex, Color, CursorShape, CursorStyle, Handler, NamedColor, StandardCharset,
@@ -385,7 +385,7 @@ impl RenderableCell {
                             && config.colors.primary.bright_foreground.is_none() =>
                     {
                         colors[NamedColor::DimForeground]
-                    },
+                    }
                     // Draw bold text in bright colors *and* contains bold flag.
                     (true, Flags::BOLD) => colors[ansi.to_bright()],
                     // Cell is marked as dim and not bold.
@@ -393,7 +393,7 @@ impl RenderableCell {
                     // None of the above, keep original color..
                     _ => colors[ansi],
                 }
-            },
+            }
             Color::Indexed(idx) => {
                 let idx = match (
                     config.draw_bold_text_with_bright_colors(),
@@ -407,7 +407,7 @@ impl RenderableCell {
                 };
 
                 colors[idx]
-            },
+            }
         }
     }
 
@@ -516,7 +516,7 @@ impl VisualBell {
                     self.start_time = None;
                 }
                 false
-            },
+            }
             None => true,
         }
     }
@@ -561,7 +561,7 @@ impl VisualBell {
                 let inverse_intensity = match self.animation {
                     BellAnimation::Ease | BellAnimation::EaseOut => {
                         cubic_bezier(0.25, 0.1, 0.25, 1.0, time)
-                    },
+                    }
                     BellAnimation::EaseOutSine => cubic_bezier(0.39, 0.575, 0.565, 1.0, time),
                     BellAnimation::EaseOutQuad => cubic_bezier(0.25, 0.46, 0.45, 0.94, time),
                     BellAnimation::EaseOutCubic => cubic_bezier(0.215, 0.61, 0.355, 1.0, time),
@@ -575,7 +575,7 @@ impl VisualBell {
                 // Since we want the `intensity` of the VisualBell to decay over
                 // `time`, we subtract the `inverse_intensity` from 1.0.
                 1.0 - inverse_intensity
-            },
+            }
         }
     }
 
@@ -1314,7 +1314,7 @@ impl<T> Term<T> {
             Direction::Right if flags.contains(Flags::LEADING_WIDE_CHAR_SPACER) => {
                 point.col = Column(1);
                 point.line -= 1;
-            },
+            }
             Direction::Right if flags.contains(Flags::WIDE_CHAR) => point.col += 1,
             Direction::Left if flags.intersects(Flags::WIDE_CHAR | Flags::WIDE_CHAR_SPACER) => {
                 if flags.contains(Flags::WIDE_CHAR_SPACER) {
@@ -1325,7 +1325,7 @@ impl<T> Term<T> {
                 if self.grid[prev].flags.contains(Flags::LEADING_WIDE_CHAR_SPACER) {
                     point = prev;
                 }
-            },
+            }
             _ => (),
         }
 
@@ -1461,21 +1461,22 @@ impl<T> Term<T> {
 
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
         let grid = &self.grid;
-        // Use rayon to iterate over each row.
-        (*y0..*y1).into_par_iter().rev().map(|y| {
-            // Create a String and fill it with the contents of the current row.
-            let mut s = String::with_capacity(*grid.cols());
-            let row = &grid[y];
-            for x in 0..*grid.cols() {
-                let cell = &row[Column(x)];
-                s.push(cell.c);
-            }
-            // Add a newline if the current line does not wrap.
-            if !row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
-                s.push('\n');
-            }
-            s
-        }).collect()
+
+        (*y0..*y1)
+            .into_par_iter()
+            .rev()
+            .flat_map(|y| {
+                let row = &grid[y];
+
+                row[..Column(row.occ)].into_par_iter().map(|cell| cell.c).chain(
+                    if row.occ == 0 || row[grid.cols() - 1].flags.contains(Flags::WRAPLINE) {
+                        None
+                    } else {
+                        Some('\n')
+                    },
+                )
+            })
+            .collect()
     }
 
     pub fn grid_to_string_only_visible(&self) -> String {
@@ -1680,12 +1681,12 @@ impl<T: EventListener> Handler for Term<T> {
             None => {
                 trace!("Reporting primary device attributes");
                 let _ = writer.write_all(b"\x1b[?6c");
-            },
+            }
             Some('>') => {
                 trace!("Reporting secondary device attributes");
                 let version = version_number(env!("CARGO_PKG_VERSION"));
                 let _ = writer.write_all(format!("\x1b[>0;{};1c", version).as_bytes());
-            },
+            }
             _ => debug!("Unsupported device attributes intermediate"),
         }
     }
@@ -1696,12 +1697,12 @@ impl<T: EventListener> Handler for Term<T> {
         match arg {
             5 => {
                 let _ = writer.write_all(b"\x1b[0n");
-            },
+            }
             6 => {
                 let pos = self.grid.cursor.point;
                 let response = format!("\x1b[{};{}R", pos.line + 1, pos.col + 1);
                 let _ = writer.write_all(response.as_bytes());
-            },
+            }
             _ => debug!("unknown device status query: {}", arg),
         };
     }
@@ -1963,17 +1964,17 @@ impl<T: EventListener> Handler for Term<T> {
                 for cell in &mut row[point.col..] {
                     *cell = bg.into();
                 }
-            },
+            }
             ansi::LineClearMode::Left => {
                 for cell in &mut row[..=point.col] {
                     *cell = bg.into();
                 }
-            },
+            }
             ansi::LineClearMode::All => {
                 for cell in &mut row[..] {
                     *cell = bg.into();
                 }
-            },
+            }
         }
 
         let cursor_buffer_line = (self.screen_lines() - self.grid.cursor.point.line - 1).0;
@@ -2081,7 +2082,7 @@ impl<T: EventListener> Handler for Term<T> {
                     .selection
                     .take()
                     .filter(|s| !s.intersects_range(cursor_buffer_line..num_lines));
-            },
+            }
             ansi::ClearMode::Below => {
                 let cursor = self.grid.cursor.point;
                 for cell in &mut self.grid[cursor.line][cursor.col..] {
@@ -2094,7 +2095,7 @@ impl<T: EventListener> Handler for Term<T> {
 
                 self.selection =
                     self.selection.take().filter(|s| !s.intersects_range(..=cursor_buffer_line));
-            },
+            }
             ansi::ClearMode::All => {
                 if self.mode.contains(TermMode::ALT_SCREEN) {
                     self.grid.region_mut(..).each(|cell| *cell = bg.into());
@@ -2103,12 +2104,12 @@ impl<T: EventListener> Handler for Term<T> {
                 }
 
                 self.selection = self.selection.take().filter(|s| !s.intersects_range(..num_lines));
-            },
+            }
             ansi::ClearMode::Saved if self.history_size() > 0 => {
                 self.grid.clear_history();
 
                 self.selection = self.selection.take().filter(|s| !s.intersects_range(num_lines..));
-            },
+            }
             // We have no history to clear.
             ansi::ClearMode::Saved => (),
         }
@@ -2120,10 +2121,10 @@ impl<T: EventListener> Handler for Term<T> {
         match mode {
             ansi::TabulationClearMode::Current => {
                 self.tabs[self.grid.cursor.point.col] = false;
-            },
+            }
             ansi::TabulationClearMode::All => {
                 self.tabs.clear_all();
-            },
+            }
         }
     }
 
@@ -2177,7 +2178,7 @@ impl<T: EventListener> Handler for Term<T> {
                 cursor.template.fg = Color::Named(NamedColor::Foreground);
                 cursor.template.bg = Color::Named(NamedColor::Background);
                 cursor.template.flags = Flags::empty();
-            },
+            }
             Attr::Reverse => cursor.template.flags.insert(Flags::INVERSE),
             Attr::CancelReverse => cursor.template.flags.remove(Flags::INVERSE),
             Attr::Bold => cursor.template.flags.insert(Flags::BOLD),
@@ -2189,21 +2190,21 @@ impl<T: EventListener> Handler for Term<T> {
             Attr::Underline => {
                 cursor.template.flags.remove(Flags::DOUBLE_UNDERLINE);
                 cursor.template.flags.insert(Flags::UNDERLINE);
-            },
+            }
             Attr::DoubleUnderline => {
                 cursor.template.flags.remove(Flags::UNDERLINE);
                 cursor.template.flags.insert(Flags::DOUBLE_UNDERLINE);
-            },
+            }
             Attr::CancelUnderline => {
                 cursor.template.flags.remove(Flags::UNDERLINE | Flags::DOUBLE_UNDERLINE);
-            },
+            }
             Attr::Hidden => cursor.template.flags.insert(Flags::HIDDEN),
             Attr::CancelHidden => cursor.template.flags.remove(Flags::HIDDEN),
             Attr::Strike => cursor.template.flags.insert(Flags::STRIKEOUT),
             Attr::CancelStrike => cursor.template.flags.remove(Flags::STRIKEOUT),
             _ => {
                 debug!("Term got unhandled attr: {:?}", attr);
-            },
+            }
         }
     }
 
@@ -2216,7 +2217,7 @@ impl<T: EventListener> Handler for Term<T> {
                 if !self.mode.contains(TermMode::ALT_SCREEN) {
                     self.swap_alt();
                 }
-            },
+            }
             ansi::Mode::ShowCursor => self.mode.insert(TermMode::SHOW_CURSOR),
             ansi::Mode::CursorKeys => self.mode.insert(TermMode::APP_CURSOR),
             // Mouse protocols are mutually exclusive.
@@ -2224,28 +2225,28 @@ impl<T: EventListener> Handler for Term<T> {
                 self.mode.remove(TermMode::MOUSE_MODE);
                 self.mode.insert(TermMode::MOUSE_REPORT_CLICK);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportCellMouseMotion => {
                 self.mode.remove(TermMode::MOUSE_MODE);
                 self.mode.insert(TermMode::MOUSE_DRAG);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportAllMouseMotion => {
                 self.mode.remove(TermMode::MOUSE_MODE);
                 self.mode.insert(TermMode::MOUSE_MOTION);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportFocusInOut => self.mode.insert(TermMode::FOCUS_IN_OUT),
             ansi::Mode::BracketedPaste => self.mode.insert(TermMode::BRACKETED_PASTE),
             // Mouse encodings are mutually exclusive.
             ansi::Mode::SgrMouse => {
                 self.mode.remove(TermMode::UTF8_MOUSE);
                 self.mode.insert(TermMode::SGR_MOUSE);
-            },
+            }
             ansi::Mode::Utf8Mouse => {
                 self.mode.remove(TermMode::SGR_MOUSE);
                 self.mode.insert(TermMode::UTF8_MOUSE);
-            },
+            }
             ansi::Mode::AlternateScroll => self.mode.insert(TermMode::ALTERNATE_SCROLL),
             ansi::Mode::LineWrap => self.mode.insert(TermMode::LINE_WRAP),
             ansi::Mode::LineFeedNewLine => self.mode.insert(TermMode::LINE_FEED_NEW_LINE),
@@ -2256,7 +2257,7 @@ impl<T: EventListener> Handler for Term<T> {
                 let style = self.cursor_style.get_or_insert(self.default_cursor_style);
                 style.blinking = true;
                 self.event_proxy.send_event(Event::CursorBlinkingChange(true));
-            },
+            }
         }
     }
 
@@ -2269,21 +2270,21 @@ impl<T: EventListener> Handler for Term<T> {
                 if self.mode.contains(TermMode::ALT_SCREEN) {
                     self.swap_alt();
                 }
-            },
+            }
             ansi::Mode::ShowCursor => self.mode.remove(TermMode::SHOW_CURSOR),
             ansi::Mode::CursorKeys => self.mode.remove(TermMode::APP_CURSOR),
             ansi::Mode::ReportMouseClicks => {
                 self.mode.remove(TermMode::MOUSE_REPORT_CLICK);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportCellMouseMotion => {
                 self.mode.remove(TermMode::MOUSE_DRAG);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportAllMouseMotion => {
                 self.mode.remove(TermMode::MOUSE_MOTION);
                 self.event_proxy.send_event(Event::MouseCursorDirty);
-            },
+            }
             ansi::Mode::ReportFocusInOut => self.mode.remove(TermMode::FOCUS_IN_OUT),
             ansi::Mode::BracketedPaste => self.mode.remove(TermMode::BRACKETED_PASTE),
             ansi::Mode::SgrMouse => self.mode.remove(TermMode::SGR_MOUSE),
@@ -2298,7 +2299,7 @@ impl<T: EventListener> Handler for Term<T> {
                 let style = self.cursor_style.get_or_insert(self.default_cursor_style);
                 style.blinking = false;
                 self.event_proxy.send_event(Event::CursorBlinkingChange(false));
-            },
+            }
         }
     }
 
@@ -2880,15 +2881,7 @@ mod tests {
         grid[Line(3)][Column(2)].c = 'g';
         grid[Line(3)][Column(3)].c = 'h';
 
-        let size = SizeInfo::new(
-            21.0,
-            51.0,
-            3.0,
-            3.0,
-            0.0,
-            0.0,
-            false
-        );
+        let size = SizeInfo::new(21.0, 51.0, 3.0, 3.0, 0.0, 0.0, false);
         let mut term = Term::new(&MockConfig::default(), size, Mock);
         mem::swap(&mut term.grid, &mut grid);
 
@@ -2897,8 +2890,8 @@ mod tests {
 
         term.grid.scroll_up(&(Line(0)..Line(4)), Line(1));
 
-        assert_eq!(term.grid_to_string(), "1234\n5678abcd\nefgh\n    \n");
-        assert_eq!(term.grid_to_string_only_visible(), "5678abcd\nefgh\n    \n");
+        assert_eq!(term.grid_to_string(), "1234\n5678abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(), "5678abcd\nefgh\n");
     }
 
     #[test]
