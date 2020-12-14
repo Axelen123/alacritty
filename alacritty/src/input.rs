@@ -171,7 +171,9 @@ impl<T: EventListener> Execute<T> for Action {
                     CommandInput::AllText => ctx.to_string(),
                 });
 
-                spawn(move || start_daemon(&program, &args, input_str));
+                spawn(move || {
+                    start_daemon(&program, &args, input_str.as_ref().map(|s| s.trim_end()))
+                });
             },
             Action::ClearSelection => ctx.clear_selection(),
             Action::ToggleViMode => ctx.terminal_mut().toggle_vi_mode(),

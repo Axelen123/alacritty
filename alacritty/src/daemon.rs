@@ -13,7 +13,7 @@ use log::{debug, warn};
 use winapi::um::winbase::{CREATE_NEW_PROCESS_GROUP, CREATE_NO_WINDOW};
 
 /// Start the daemon and log error on failure.
-pub fn start_daemon<I, S>(program: &str, args: I, input: Option<String>)
+pub fn start_daemon<I, S>(program: &str, args: I, input: Option<&str>)
 where
     I: IntoIterator<Item = S> + Debug + Copy,
     S: AsRef<OsStr>,
@@ -25,7 +25,7 @@ where
 }
 
 #[cfg(windows)]
-fn spawn_daemon<I, S>(program: &str, args: I, input: Option<String>) -> io::Result<()>
+fn spawn_daemon<I, S>(program: &str, args: I, input: Option<&str>) -> io::Result<()>
 where
     I: IntoIterator<Item = S> + Copy,
     S: AsRef<OsStr>,
@@ -49,7 +49,7 @@ where
 }
 
 #[cfg(not(windows))]
-fn spawn_daemon<I, S>(program: &str, args: I, input: Option<String>) -> io::Result<()>
+fn spawn_daemon<I, S>(program: &str, args: I, input: Option<&str>) -> io::Result<()>
 where
     I: IntoIterator<Item = S> + Copy,
     S: AsRef<OsStr>,
