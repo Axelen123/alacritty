@@ -1468,6 +1468,7 @@ impl<T> Term<T> {
             let wrapline = row.last().unwrap().flags.contains(Flags::WRAPLINE);
             let mut line_len = 0;
 
+            // Calculate the line length. We need to do this to avoid trailing spaces.
             if wrapline {
                 line_len = *grid.cols();
             } else {
@@ -1479,6 +1480,7 @@ impl<T> Term<T> {
                 }
             }
 
+            // Add the chars to the string.
             for x in 0..line_len {
                 s.push(row[Column(x)].c);
             }
@@ -1488,6 +1490,7 @@ impl<T> Term<T> {
             }
         }
 
+        // Ensure that the string ends with a newline.
         if !s.ends_with('\n') {
             s.push('\n');
         }
