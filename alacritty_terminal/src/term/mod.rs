@@ -1461,6 +1461,10 @@ impl<T> Term<T> {
     fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
         let grid = &self.grid;
 
+        assert!(*y0 < grid.total_lines());
+        assert!(*y1 <= grid.total_lines());
+        assert!(y0 < y1);
+
         let mut s = String::with_capacity(*(y1 - y0) * *grid.cols());
 
         for y in (*y0..*y1).rev() {
