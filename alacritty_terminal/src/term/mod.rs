@@ -16,7 +16,7 @@ use crate::ansi::{
 };
 use crate::config::{BellAnimation, BellConfig, Config};
 use crate::event::{Event, EventListener};
-use crate::grid::{Dimensions, DisplayIter, Grid, IndexRegion, Indexed, Scroll};
+use crate::grid::{Dimensions, DisplayIter, Grid, GridCell, IndexRegion, Indexed, Scroll};
 use crate::index::{self, Boundary, Column, Direction, IndexRange, Line, Point, Side};
 use crate::selection::{Selection, SelectionRange};
 use crate::term::cell::{Cell, Flags, LineLength};
@@ -1465,13 +1465,27 @@ impl<T> Term<T> {
 
         for y in (*y0..*y1).rev() {
             let row = &grid[y];
+            let wrapline = row.last().unwrap().flags.contains(Flags::WRAPLINE);
+            let mut line_len = 0;
+
+            // Calculate the line length. We need to do this to avoid trailing spaces.
+            if wrapline {
+                line_len = *grid.cols();
+            } else {
+                for n in (0..*grid.cols()).rev() {
+                    if !row[Column(n)].is_empty() {
+                        line_len = n + 1;
+                        break;
+                    }
+                }
+            }
 
             // Add the chars to the string.
-            for x in 0..*row.line_length() {
+            for x in 0..line_len {
                 s.push(row[Column(x)].c);
             }
 
-            if !row.last().unwrap().flags.contains(Flags::WRAPLINE) {
+            if !wrapline {
                 s.push('\n');
             }
         }
