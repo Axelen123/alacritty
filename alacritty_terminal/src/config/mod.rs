@@ -271,6 +271,12 @@ impl Into<bool> for CursorBlinking {
     }
 }
 
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CommandInput {
+    VisibleText,
+    AllText,
+}
+
 #[serde(untagged)]
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum Program {
@@ -279,6 +285,8 @@ pub enum Program {
         program: String,
         #[serde(default, deserialize_with = "failure_default")]
         args: Vec<String>,
+        #[serde(default, deserialize_with = "failure_default")]
+        input: Option<CommandInput>,
     },
 }
 
@@ -294,6 +302,13 @@ impl Program {
         match self {
             Program::Just(_) => &[],
             Program::WithArgs { args, .. } => args,
+        }
+    }
+
+    pub fn input(&self) -> Option<CommandInput> {
+        match self {
+            Program::Just(_) => None,
+            Program::WithArgs { input, .. } => *input,
         }
     }
 }
