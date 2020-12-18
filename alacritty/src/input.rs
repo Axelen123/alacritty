@@ -106,8 +106,8 @@ pub trait ActionContext<T: EventListener> {
     fn search_direction(&self) -> Direction;
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self);
-    fn to_string(&self) -> String;
-    fn to_string_only_visible(&self) -> String;
+    fn to_string(&self, esc_seqs: bool) -> String;
+    fn to_string_only_visible(&self, esc_seqs: bool) -> String;
 }
 
 trait Execute<T: EventListener> {
@@ -164,11 +164,12 @@ impl<T: EventListener> Execute<T> for Action {
                 let args = cmd.args().to_owned();
                 let input = cmd.input();
                 let program = cmd.program().to_string();
+                let esc_seqs = cmd.esc_seqs();
                 trace!("Running command {} with args {:?}", program, args);
 
                 let input_str = input.map(|i| match i {
-                    CommandInput::VisibleText => ctx.to_string_only_visible(),
-                    CommandInput::AllText => ctx.to_string(),
+                    CommandInput::VisibleText => ctx.to_string_only_visible(esc_seqs),
+                    CommandInput::AllText => ctx.to_string(esc_seqs),
                 });
 
                 thread::spawn_named("command", move || {
@@ -1280,12 +1281,12 @@ mod tests {
             unimplemented!();
         }
 
-        fn to_string(&self) -> String {
-            self.terminal.grid_to_string()
+        fn to_string(&self, esc_seqs: bool) -> String {
+            self.terminal.grid_to_string(esc_seqs)
         }
 
-        fn to_string_only_visible(&self) -> String {
-            self.terminal.grid_to_string_only_visible()
+        fn to_string_only_visible(&self, esc_seqs: bool) -> String {
+            self.terminal.grid_to_string_only_visible(esc_seqs)
         }
     }
 

@@ -553,12 +553,12 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         self.scheduler
     }
 
-    fn to_string(&self) -> String {
-        self.terminal.grid_to_string()
+    fn to_string(&self, esc_seqs: bool) -> String {
+        self.terminal.grid_to_string(esc_seqs)
     }
 
-    fn to_string_only_visible(&self) -> String {
-        self.terminal.grid_to_string_only_visible()
+    fn to_string_only_visible(&self, esc_seqs: bool) -> String {
+        self.terminal.grid_to_string_only_visible(esc_seqs)
     }
 }
 
