@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use glutin::event_loop::EventLoop as GlutinEventLoop;
 use log::{error, info};
+use crossbeam_utils::thread;
 #[cfg(windows)]
 use winapi::um::wincon::{AttachConsole, FreeConsole, ATTACH_PARENT_PROCESS};
 
@@ -29,6 +30,7 @@ use alacritty_terminal::event_loop::{self, EventLoop, Msg};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::Term;
 use alacritty_terminal::tty;
+use alacritty_terminal::event::EventListener;
 
 mod cli;
 mod clipboard;
@@ -66,6 +68,20 @@ use crate::event::{Event, EventProxy, Processor};
 #[cfg(target_os = "macos")]
 use crate::macos::locale;
 use crate::message_bar::MessageBuffer;
+
+pub struct ScopeCtx<'b, 's, T: EventListener + 's> {
+    pub term: Arc<FairMutex<Term<T>>>,
+    pub scope: &'b thread::Scope<'s>,
+}
+
+impl<'b, 's: 'b, T: EventListener + 's> Clone for ScopeCtx<'b, 's, T> {
+    fn clone(&self) -> Self {
+        Self {
+            term: self.term.clone(),
+            scope: self.scope,
+        }
+    }
+}
 
 fn main() {
     #[cfg(windows)]
@@ -207,8 +223,14 @@ fn run(
 
     info!("Initialisation complete");
 
-    // Start event loop and block until shutdown.
-    processor.run(terminal, window_event_loop);
+    thread::scope(|scope| {
+        // Start event loop and block until shutdown.
+        let ctx = ScopeCtx {
+            term: terminal.clone(),
+            scope,
+        };
+        processor.run(terminal, window_event_loop, ctx);
+    }).unwrap();
 
     // This explicit drop is needed for Windows, ConPTY backend. Otherwise a deadlock can occur.
     // The cause:

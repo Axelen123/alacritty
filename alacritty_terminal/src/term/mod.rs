@@ -1458,8 +1458,8 @@ impl<T> Term<T> {
         }
     }
 
-    fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
-        let grid = &self.grid;
+    fn grid_to_string_between(grid: &Grid<Cell>, y0: Line, y1: Line) -> String {
+        // let grid = &self.grid;
 
         assert!(*y0 < grid.total_lines());
         assert!(*y1 <= grid.total_lines());
@@ -1502,14 +1502,15 @@ impl<T> Term<T> {
         s
     }
 
-    pub fn grid_to_string_only_visible(&self) -> String {
-        self.grid_to_string_between(Line(self.grid.display_offset()), self.grid.screen_lines())
+    pub fn grid_to_string_only_visible(grid: &Grid<Cell>) -> String {
+        Self::grid_to_string_between(grid, Line(grid.display_offset()), grid.screen_lines())
     }
 
-    pub fn grid_to_string(&self) -> String {
-        self.grid_to_string_between(
+    pub fn grid_to_string(grid: &Grid<Cell>) -> String {
+        Self::grid_to_string_between(
+            grid,
             Line(0),
-            Line(*self.grid.screen_lines() + self.grid.history_size()),
+            Line(*grid.screen_lines() + grid.history_size()),
         )
     }
 }

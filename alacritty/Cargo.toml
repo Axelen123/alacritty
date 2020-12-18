@@ -15,6 +15,7 @@ default-features = false
 
 [dependencies]
 clap = "2"
+crossbeam-utils = "0.8"
 log = { version = "0.4", features = ["std"] }
 time = "0.1.40"
 fnv = "1"

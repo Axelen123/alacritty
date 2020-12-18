@@ -22,6 +22,8 @@ use glutin::event_loop::EventLoopWindowTarget;
 use glutin::platform::macos::EventLoopWindowTargetExtMacOS;
 use glutin::window::CursorIcon;
 
+// use crossbeam_utils::thread as sthread;
+
 use alacritty_terminal::ansi::{ClearMode, Handler};
 use alacritty_terminal::config::CommandInput;
 use alacritty_terminal::event::EventListener;
@@ -30,7 +32,7 @@ use alacritty_terminal::index::{Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::mode::TermMode;
 use alacritty_terminal::term::{ClipboardType, SizeInfo, Term};
-use alacritty_terminal::thread;
+// use alacritty_terminal::thread;
 use alacritty_terminal::vi_mode::ViMotion;
 
 use crate::clipboard::Clipboard;
@@ -41,6 +43,7 @@ use crate::message_bar::{self, Message};
 use crate::scheduler::{Scheduler, TimerId};
 use crate::url::{Url, Urls};
 use crate::window::Window;
+use crate::ScopeCtx;
 
 /// Font size change interval.
 pub const FONT_SIZE_STEP: f32 = 0.5;
@@ -106,19 +109,19 @@ pub trait ActionContext<T: EventListener> {
     fn search_direction(&self) -> Direction;
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self);
-    fn to_string(&self) -> String;
-    fn to_string_only_visible(&self) -> String;
+    // fn to_string(&self) -> String;
+    // fn to_string_only_visible(&self) -> String;
 }
 
 trait Execute<T: EventListener> {
-    fn execute<A: ActionContext<T>>(&self, ctx: &mut A);
+    fn execute<A: ActionContext<T>>(&self, ctx: &mut A, scope: ScopeCtx<'_, '_, T>);
 }
 
 impl<T, U: EventListener> Execute<U> for Binding<T> {
     /// Execute the action associate with this binding.
     #[inline]
-    fn execute<A: ActionContext<U>>(&self, ctx: &mut A) {
-        self.action.execute(ctx)
+    fn execute<A: ActionContext<U>>(&self, ctx: &mut A, scope: ScopeCtx<'_, '_, U>) {
+        self.action.execute(ctx, scope)
     }
 }
 
@@ -138,9 +141,15 @@ impl Action {
     }
 }
 
+struct ForceSend<T> {
+    inner: T,
+}
+
+unsafe impl<T> Send for ForceSend<T> { }
+
 impl<T: EventListener> Execute<T> for Action {
     #[inline]
-    fn execute<A: ActionContext<T>>(&self, ctx: &mut A) {
+    fn execute<A: ActionContext<T>>(&self, ctx: &mut A, scope: ScopeCtx<'_, '_, T>) {
         match *self {
             Action::Esc(ref s) => {
                 ctx.on_typing_start();
@@ -166,12 +175,15 @@ impl<T: EventListener> Execute<T> for Action {
                 let program = cmd.program().to_string();
                 trace!("Running command {} with args {:?}", program, args);
 
-                let input_str = input.map(|i| match i {
-                    CommandInput::VisibleText => ctx.to_string_only_visible(),
-                    CommandInput::AllText => ctx.to_string(),
-                });
+                let term = ForceSend { inner: scope.term.clone() };
+                scope.scope.spawn(move |_| {
+                    let lock = term.inner.lock();
+                    let grid = lock.grid();
+                    let input_str = input.map(move |i| match i {
+                        CommandInput::VisibleText => Term::<T>::grid_to_string_only_visible(grid),
+                        CommandInput::AllText => Term::<T>::grid_to_string(grid),
+                    });
 
-                thread::spawn_named("command", move || {
                     start_daemon(&program, &args, input_str.as_deref());
                 });
             },
@@ -760,7 +772,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
         }
     }
 
-    pub fn mouse_input(&mut self, state: ElementState, button: MouseButton) {
+    pub fn mouse_input(&mut self, state: ElementState, button: MouseButton, scope: ScopeCtx<'_, '_, T>) {
         match button {
             MouseButton::Left => self.ctx.mouse_mut().left_button_state = state,
             MouseButton::Middle => self.ctx.mouse_mut().middle_button_state = state,
@@ -798,7 +810,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
         } else {
             match state {
                 ElementState::Pressed => {
-                    self.process_mouse_bindings(button);
+                    self.process_mouse_bindings(button, scope);
                     self.on_mouse_press(button);
                 },
                 ElementState::Released => self.on_mouse_release(button),
@@ -807,7 +819,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
     }
 
     /// Process key input.
-    pub fn key_input(&mut self, input: KeyboardInput) {
+    pub fn key_input(&mut self, input: KeyboardInput, scope: ScopeCtx<'_, '_, T>) {
         match input.state {
             ElementState::Pressed if self.ctx.search_active() => {
                 match (input.virtual_keycode, *self.ctx.modifiers()) {
@@ -861,7 +873,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
             },
             ElementState::Pressed => {
                 *self.ctx.received_count() = 0;
-                self.process_key_bindings(input);
+                self.process_key_bindings(input, scope);
             },
             ElementState::Released => (),
         }
@@ -933,7 +945,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
     ///
     /// The provided mode, mods, and key must match what is allowed by a binding
     /// for its action to be executed.
-    fn process_key_bindings(&mut self, input: KeyboardInput) {
+    fn process_key_bindings(&mut self, input: KeyboardInput, scope: ScopeCtx<'_, '_, T>) {
         let mods = *self.ctx.modifiers();
         let mut suppress_chars = None;
 
@@ -949,7 +961,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
             if binding.is_triggered_by(*self.ctx.terminal().mode(), mods, &key) {
                 // Binding was triggered; run the action.
                 let binding = binding.clone();
-                binding.execute(&mut self.ctx);
+                binding.execute(&mut self.ctx, scope.clone());
 
                 // Pass through the key if any of the bindings has the `ReceiveChar` action.
                 *suppress_chars.get_or_insert(true) &= binding.action != Action::ReceiveChar;
@@ -964,7 +976,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
     ///
     /// The provided mode, mods, and key must match what is allowed by a binding
     /// for its action to be executed.
-    fn process_mouse_bindings(&mut self, button: MouseButton) {
+    fn process_mouse_bindings(&mut self, button: MouseButton, scope: ScopeCtx<'_, '_, T>) {
         // Ignore bindings while search is active.
         if self.ctx.search_active() {
             return;
@@ -983,7 +995,7 @@ impl<'a, T: EventListener, A: ActionContext<T>> Processor<'a, T, A> {
             }
 
             if binding.is_triggered_by(mode, mods, &button) {
-                binding.execute(&mut self.ctx);
+                binding.execute(&mut self.ctx, scope.clone());
             }
         }
     }
@@ -1280,13 +1292,13 @@ mod tests {
             unimplemented!();
         }
 
-        fn to_string(&self) -> String {
-            self.terminal.grid_to_string()
-        }
+        // fn to_string(&self) -> String {
+        //     self.terminal.grid_to_string()
+        // }
 
-        fn to_string_only_visible(&self) -> String {
-            self.terminal.grid_to_string_only_visible()
-        }
+        // fn to_string_only_visible(&self) -> String {
+        //     self.terminal.grid_to_string_only_visible()
+        // }
     }
 
     macro_rules! test_clickstate {

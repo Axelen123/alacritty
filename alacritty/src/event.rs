@@ -6,8 +6,8 @@ use std::env;
 use std::fmt::Debug;
 #[cfg(not(any(target_os = "macos", windows)))]
 use std::fs;
-use std::fs::File;
-use std::io::Write;
+// use std::fs::File;
+// use std::io::Write;
 use std::mem;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
@@ -23,7 +23,7 @@ use glutin::platform::run_return::EventLoopExtRunReturn;
 #[cfg(all(feature = "wayland", not(any(target_os = "macos", windows))))]
 use glutin::platform::unix::EventLoopWindowTargetExtUnix;
 use log::info;
-use serde_json as json;
+// use serde_json as json;
 
 #[cfg(target_os = "macos")]
 use crossfont::set_font_smoothing;
@@ -52,6 +52,7 @@ use crate::message_bar::{Message, MessageBuffer};
 use crate::scheduler::{Scheduler, TimerId};
 use crate::url::{Url, Urls};
 use crate::window::Window;
+use crate::ScopeCtx;
 
 /// Duration after the last user input until an unlimited search is performed.
 pub const TYPING_SEARCH_DELAY: Duration = Duration::from_millis(500);
@@ -553,13 +554,13 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
         self.scheduler
     }
 
-    fn to_string(&self) -> String {
-        self.terminal.grid_to_string()
-    }
+    // fn to_string(&self) -> String {
+    //     self.terminal.grid_to_string()
+    // }
 
-    fn to_string_only_visible(&self) -> String {
-        self.terminal.grid_to_string_only_visible()
-    }
+    // fn to_string_only_visible(&self) -> String {
+    //     self.terminal.grid_to_string_only_visible()
+    // }
 }
 
 impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
@@ -857,7 +858,7 @@ impl<N: Notify + OnResize> Processor<N> {
     }
 
     /// Run the event loop.
-    pub fn run<T>(&mut self, terminal: Arc<FairMutex<Term<T>>>, mut event_loop: EventLoop<Event>)
+    pub fn run<'s, T>(&mut self, terminal: Arc<FairMutex<Term<T>>>, mut event_loop: EventLoop<Event>, scope: ScopeCtx<'_, 's, T>)
     where
         T: EventListener,
     {
@@ -869,7 +870,7 @@ impl<N: Notify + OnResize> Processor<N> {
             self.event_queue.push(event.into());
         }
 
-        event_loop.run_return(|event, event_loop, control_flow| {
+        event_loop.run_return(move |event, event_loop, control_flow| {
             if self.config.ui_config.debug.print_events {
                 info!("glutin event: {:?}", event);
             }
@@ -944,7 +945,7 @@ impl<N: Notify + OnResize> Processor<N> {
             let mut processor = input::Processor::new(context, &self.display.highlighted_url);
 
             for event in self.event_queue.drain(..) {
-                Processor::handle_event(event, &mut processor);
+                Processor::handle_event(event, &mut processor, scope.clone());
             }
 
             // Process DisplayUpdate events.
@@ -982,17 +983,18 @@ impl<N: Notify + OnResize> Processor<N> {
         });
 
         // Write ref tests to disk.
-        if self.config.ui_config.debug.ref_test {
-            self.write_ref_test_results(&terminal.lock());
-        }
+        // if self.config.ui_config.debug.ref_test {
+        //     self.write_ref_test_results(&terminal.lock());
+        // }
     }
 
     /// Handle events from glutin.
     ///
     /// Doesn't take self mutably due to borrow checking.
-    fn handle_event<T>(
+    fn handle_event<'s, T>(
         event: GlutinEvent<'_, Event>,
         processor: &mut input::Processor<'_, T, ActionContext<'_, N, T>>,
+        scope: ScopeCtx<'_, 's, T>,
     ) where
         T: EventListener,
     {
@@ -1077,12 +1079,12 @@ impl<N: Notify + OnResize> Processor<N> {
                         processor.ctx.terminal.dirty = true;
                     },
                     WindowEvent::KeyboardInput { input, is_synthetic: false, .. } => {
-                        processor.key_input(input);
+                        processor.key_input(input, scope);
                     },
                     WindowEvent::ReceivedCharacter(c) => processor.received_char(c),
                     WindowEvent::MouseInput { state, button, .. } => {
                         processor.ctx.window.set_mouse_visible(true);
-                        processor.mouse_input(state, button);
+                        processor.mouse_input(state, button, scope);
                         processor.ctx.terminal.dirty = true;
                     },
                     WindowEvent::ModifiersChanged(modifiers) => {
@@ -1273,31 +1275,31 @@ impl<N: Notify + OnResize> Processor<N> {
         }
     }
 
-    /// Write the ref test results to the disk.
-    fn write_ref_test_results<T>(&self, terminal: &Term<T>) {
-        // Dump grid state.
-        let mut grid = terminal.grid().clone();
-        grid.initialize_all();
-        grid.truncate();
+    // Write the ref test results to the disk.
+    // fn write_ref_test_results<T>(&self, terminal: &Term<T>) {
+    //     // Dump grid state.
+    //     let mut grid = terminal.grid().clone();
+    //     grid.initialize_all();
+    //     grid.truncate();
 
-        let serialized_grid = json::to_string(&grid).expect("serialize grid");
+    //     let serialized_grid = json::to_string(&grid).expect("serialize grid");
 
-        let serialized_size = json::to_string(&self.display.size_info).expect("serialize size");
+    //     let serialized_size = json::to_string(&self.display.size_info).expect("serialize size");
 
-        let serialized_config = format!("{{\"history_size\":{}}}", grid.history_size());
+    //     let serialized_config = format!("{{\"history_size\":{}}}", grid.history_size());
 
-        File::create("./grid.json")
-            .and_then(|mut f| f.write_all(serialized_grid.as_bytes()))
-            .expect("write grid.json");
+    //     File::create("./grid.json")
+    //         .and_then(|mut f| f.write_all(serialized_grid.as_bytes()))
+    //         .expect("write grid.json");
 
-        File::create("./size.json")
-            .and_then(|mut f| f.write_all(serialized_size.as_bytes()))
-            .expect("write size.json");
+    //     File::create("./size.json")
+    //         .and_then(|mut f| f.write_all(serialized_size.as_bytes()))
+    //         .expect("write size.json");
 
-        File::create("./config.json")
-            .and_then(|mut f| f.write_all(serialized_config.as_bytes()))
-            .expect("write config.json");
-    }
+    //     File::create("./config.json")
+    //         .and_then(|mut f| f.write_all(serialized_config.as_bytes()))
+    //         .expect("write config.json");
+    // }
 }
 
 #[derive(Debug, Clone)]
