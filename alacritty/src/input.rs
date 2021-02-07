@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::cmp::{max, min, Ordering};
 use std::marker::PhantomData;
+use std::mem;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::trace;
@@ -27,8 +29,9 @@ use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::SelectionType;
+use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::Match;
-use alacritty_terminal::term::{ClipboardType, SizeInfo, Term, TermMode};
+use alacritty_terminal::term::{ClipboardType, CollectorMode, SizeInfo, Term, TermMode};
 use alacritty_terminal::thread;
 use alacritty_terminal::vi_mode::ViMotion;
 
@@ -82,6 +85,7 @@ pub trait ActionContext<T: EventListener> {
     fn window(&self) -> &Window;
     fn window_mut(&mut self) -> &mut Window;
     fn terminal(&self) -> &Term<T>;
+    fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>>;
     fn terminal_mut(&mut self) -> &mut Term<T>;
     fn spawn_new_instance(&mut self) {}
     fn change_font_size(&mut self, _delta: f32) {}
@@ -114,8 +118,6 @@ pub trait ActionContext<T: EventListener> {
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self) {}
     fn toggle_vi_mode(&mut self) {}
-    fn to_string(&self) -> String;
-    fn to_string_only_visible(&self) -> String;
 }
 
 trait Execute<T: EventListener> {
@@ -162,16 +164,36 @@ impl<T: EventListener> Execute<T> for Action {
                 let input = cmd.input();
                 let program = cmd.program().to_string();
                 let esc_seqs = cmd.esc_seqs();
+                let term = ctx.terminal();
+                #[cfg(feature = "responsive_mode")]
+                let mode = Some(CollectorMode::from(10));
+                #[cfg(not(feature = "responsive_mode"))]
+                let mode = None;
                 trace!("Running command {} with args {:?}", program, args);
 
-                let term = ctx.terminal();
-                let input_str = input.map(|i| match i {
-                    CommandInput::VisibleText => term.grid_to_string_only_visible(esc_seqs),
-                    CommandInput::AllText => term.grid_to_string(esc_seqs),
+                let input = input.map(|i| match i {
+                    CommandInput::VisibleText => term
+                        .grid_collector_only_visible(mode.unwrap_or(CollectorMode::Sync), esc_seqs),
+                    CommandInput::AllText => term.grid_collector(
+                        mode.unwrap_or_else(|| CollectorMode::from(*term.screen_lines())),
+                        esc_seqs,
+                    ),
                 });
 
+                let term = ctx.terminal_ptr().clone();
                 thread::spawn_named("command", move || {
-                    start_daemon(&program, &args, input_str.as_deref());
+                    let input = input.map(|mut c| {
+                        let mut done = false;
+                        while !done {
+                            let term = term.lock();
+                            done = c.execute(term.grid());
+                            mem::drop(term);
+                        }
+
+                        c.finish()
+                    });
+
+                    start_daemon(&program, &args, input.as_deref());
                 });
             },
             Action::ToggleViMode => ctx.toggle_vi_mode(),
@@ -1148,6 +1170,10 @@ mod tests {
             &self.terminal
         }
 
+        fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>> {
+            unimplemented!();
+        }
+
         fn terminal_mut(&mut self) -> &mut Term<T> {
             &mut self.terminal
         }
@@ -1240,32 +1266,6 @@ mod tests {
         fn scheduler_mut(&mut self) -> &mut Scheduler {
             unimplemented!();
         }
-
-<<<<<<< HEAD
-        fn to_string(&self) -> String {
-            self.terminal.grid_to_string()
-        }
-
-        fn to_string_only_visible(&self) -> String {
-            self.terminal.grid_to_string_only_visible()
-        }
-||||||| parent of 8716491 (Add escape sequence option)
-        fn on_typing_start(&mut self) {
-            unimplemented!();
-        }
-
-        fn to_string(&self) -> String {
-            self.terminal.grid_to_string()
-        }
-
-        fn to_string_only_visible(&self) -> String {
-            self.terminal.grid_to_string_only_visible()
-        }
-=======
-        fn on_typing_start(&mut self) {
-            unimplemented!();
-        }
->>>>>>> 8716491 (Add escape sequence option)
     }
 
     macro_rules! test_clickstate {

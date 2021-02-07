@@ -100,7 +100,7 @@ impl Cell {
         }
     }
 
-    pub fn as_escape(&self, buf: &mut String, last: Self) {
+    pub fn as_escape(&self, buf: &mut String, last: &Self) {
         // Always push CSI introducer since it's more efficient to truncate later
         *buf += "\x1b[";
         let empty_len = buf.len();

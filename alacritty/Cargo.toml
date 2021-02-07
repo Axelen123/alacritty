@@ -64,4 +64,5 @@ embed-resource = "1.3"
 default = ["wayland", "x11"]
 x11 = ["copypasta/x11", "glutin/x11", "x11-dl", "png"]
 wayland = ["copypasta/wayland", "glutin/wayland", "wayland-client"]
+responsive_mode = []
 nightly = []

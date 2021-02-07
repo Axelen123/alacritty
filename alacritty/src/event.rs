@@ -164,6 +164,7 @@ impl Default for SearchState {
 pub struct ActionContext<'a, N, T> {
     pub notifier: &'a mut N,
     pub terminal: &'a mut Term<T>,
+    pub terminal_ptr: &'a Arc<FairMutex<Term<T>>>,
     pub clipboard: &'a mut Clipboard,
     pub mouse: &'a mut Mouse,
     pub received_count: &'a mut usize,
@@ -339,6 +340,11 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     #[inline]
     fn terminal(&self) -> &Term<T> {
         self.terminal
+    }
+
+    #[inline]
+    fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>> {
+        self.terminal_ptr
     }
 
     #[inline]
@@ -993,7 +999,7 @@ impl<N: Notify + OnResize> Processor<N> {
     }
 
     /// Run the event loop.
-    pub fn run<T>(&mut self, terminal: Arc<FairMutex<Term<T>>>, mut event_loop: EventLoop<Event>)
+    pub fn run<T>(&mut self, term: Arc<FairMutex<Term<T>>>, mut event_loop: EventLoop<Event>)
     where
         T: EventListener,
     {
@@ -1057,13 +1063,14 @@ impl<N: Notify + OnResize> Processor<N> {
                 },
             }
 
-            let mut terminal = terminal.lock();
+            let mut terminal = term.lock();
 
             let mut display_update_pending = DisplayUpdate::default();
             let old_is_searching = self.search_state.history_index.is_some();
 
             let context = ActionContext {
                 terminal: &mut terminal,
+                terminal_ptr: &term,
                 notifier: &mut self.notifier,
                 mouse: &mut self.mouse,
                 clipboard: &mut clipboard,
@@ -1123,7 +1130,7 @@ impl<N: Notify + OnResize> Processor<N> {
 
         // Write ref tests to disk.
         if self.config.ui_config.debug.ref_test {
-            self.write_ref_test_results(&terminal.lock());
+            self.write_ref_test_results(&term.lock());
         }
     }
 
