@@ -15,7 +15,14 @@ use crate::ansi::{
 };
 use crate::config::Config;
 use crate::event::{Event, EventListener};
-use crate::grid::{Dimensions, DisplayIter, Grid, Scroll};
+// <<<<<<< HEAD
+// use crate::grid::{Dimensions, DisplayIter, Grid, Scroll};
+// ||||||| parent of a27ac2b (Allow for Commands to take visible or all text as input)
+// use crate::grid::{Dimensions, Grid, IndexRegion, Scroll};
+// =======
+// use crate::grid::{Dimensions, Grid, GridCell, IndexRegion, Scroll};
+// >>>>>>> a27ac2b (Allow for Commands to take visible or all text as input)
+use crate::grid::{Dimensions, Grid, GridCell, DisplayIter, Scroll};
 use crate::index::{self, Boundary, Column, Direction, IndexRange, Line, Point, Side};
 use crate::selection::{Selection, SelectionRange};
 use crate::term::cell::{Cell, Flags, LineLength};
@@ -812,6 +819,61 @@ impl<T> Term<T> {
         cursor_cell.flags = flags;
 
         cursor_cell
+    }
+
+    fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
+        let grid = &self.grid;
+
+        assert!(*y0 < grid.total_lines());
+        assert!(*y1 <= grid.total_lines());
+        assert!(y0 < y1);
+
+        let mut s = String::with_capacity(*(y1 - y0) * *grid.cols());
+
+        for y in (*y0..*y1).rev() {
+            let row = &grid[y];
+            let wrapline = row.last().unwrap().flags.contains(Flags::WRAPLINE);
+            let mut line_len = 0;
+
+            // Calculate the line length. We need to do this to avoid trailing spaces.
+            if wrapline {
+                line_len = *grid.cols();
+            } else {
+                for n in (0..*grid.cols()).rev() {
+                    if !row[Column(n)].is_empty() {
+                        line_len = n + 1;
+                        break;
+                    }
+                }
+            }
+
+            // Add the chars to the string.
+            for x in 0..line_len {
+                s.push(row[Column(x)].c);
+            }
+
+            if !wrapline {
+                s.push('\n');
+            }
+        }
+
+        // Ensure that the string ends with a newline.
+        if !s.ends_with('\n') {
+            s.push('\n');
+        }
+
+        s
+    }
+
+    pub fn grid_to_string_only_visible(&self) -> String {
+        self.grid_to_string_between(Line(self.grid.display_offset()), self.grid.screen_lines())
+    }
+
+    pub fn grid_to_string(&self) -> String {
+        self.grid_to_string_between(
+            Line(0),
+            Line(*self.grid.screen_lines() + self.grid.history_size()),
+        )
     }
 }
 
@@ -2224,6 +2286,43 @@ mod tests {
         term.title = Some("Test".into());
         term.set_title(None);
         assert_eq!(term.title, None);
+    }
+
+    #[test]
+    fn to_string() {
+        let mut grid = Grid::<Cell>::new(Line(4), Column(4), 1);
+        grid[Line(0)][Column(0)].c = '1';
+        grid[Line(0)][Column(1)].c = ' ';
+        grid[Line(0)][Column(2)].c = '2';
+
+        grid[Line(1)][Column(0)].c = '3';
+        grid[Line(1)][Column(1)].c = '4';
+        grid[Line(1)][Column(2)].c = '5';
+        grid[Line(1)][Column(3)].c = '6';
+        grid[Line(1)][Column(3)].flags.insert(Flags::WRAPLINE);
+
+        grid[Line(2)][Column(0)].c = 'a';
+        grid[Line(2)][Column(1)].c = 'b';
+        grid[Line(2)][Column(2)].c = 'c';
+        grid[Line(2)][Column(3)].c = 'd';
+
+        grid[Line(3)][Column(0)].c = 'e';
+        grid[Line(3)][Column(1)].c = 'f';
+        grid[Line(3)][Column(2)].c = 'g';
+        grid[Line(3)][Column(3)].c = 'h';
+        grid[Line(3)][Column(3)].flags.insert(Flags::WRAPLINE);
+
+        let size = SizeInfo::new(21.0, 51.0, 3.0, 3.0, 0.0, 0.0, false);
+        let mut term = Term::new(&MockConfig::default(), size, Mock);
+        mem::swap(&mut term.grid, &mut grid);
+
+        assert_eq!(term.grid_to_string(), "1 2\n3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(), "1 2\n3456abcd\nefgh\n");
+
+        term.grid.scroll_up(&(Line(0)..Line(4)), Line(1));
+
+        assert_eq!(term.grid_to_string(), "1 2\n3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(), "3456abcd\nefgh\n");
     }
 
     #[test]

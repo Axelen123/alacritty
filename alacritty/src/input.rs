@@ -22,12 +22,14 @@ use glutin::platform::macos::EventLoopWindowTargetExtMacOS;
 use glutin::window::CursorIcon;
 
 use alacritty_terminal::ansi::{ClearMode, Handler};
+use alacritty_terminal::config::CommandInput;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::SelectionType;
 use alacritty_terminal::term::search::Match;
 use alacritty_terminal::term::{ClipboardType, SizeInfo, Term, TermMode};
+use alacritty_terminal::thread;
 use alacritty_terminal::vi_mode::ViMotion;
 
 use crate::clipboard::Clipboard;
@@ -112,6 +114,8 @@ pub trait ActionContext<T: EventListener> {
     fn search_active(&self) -> bool;
     fn on_typing_start(&mut self) {}
     fn toggle_vi_mode(&mut self) {}
+    fn to_string(&self) -> String;
+    fn to_string_only_visible(&self) -> String;
 }
 
 trait Execute<T: EventListener> {
@@ -153,12 +157,20 @@ impl<T: EventListener> Execute<T> for Action {
                 ctx.scroll(Scroll::Bottom);
                 ctx.write_to_pty(s.clone().into_bytes())
             },
-            Action::Command(ref program) => {
-                let args = program.args();
-                let program = program.program();
+            Action::Command(ref cmd) => {
+                let args = cmd.args().to_owned();
+                let input = cmd.input();
+                let program = cmd.program().to_string();
                 trace!("Running command {} with args {:?}", program, args);
 
-                start_daemon(program, args);
+                let input_str = input.map(|i| match i {
+                    CommandInput::VisibleText => ctx.to_string_only_visible(),
+                    CommandInput::AllText => ctx.to_string(),
+                });
+
+                thread::spawn_named("command", move || {
+                    start_daemon(&program, &args, input_str.as_deref());
+                });
             },
             Action::ToggleViMode => ctx.toggle_vi_mode(),
             Action::ViMotion(motion) => {
@@ -1225,6 +1237,14 @@ mod tests {
 
         fn scheduler_mut(&mut self) -> &mut Scheduler {
             unimplemented!();
+        }
+
+        fn to_string(&self) -> String {
+            self.terminal.grid_to_string()
+        }
+
+        fn to_string_only_visible(&self) -> String {
+            self.terminal.grid_to_string_only_visible()
         }
     }
 

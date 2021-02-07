@@ -387,7 +387,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
             args.push(arg.into());
         }
 
-        start_daemon(&alacritty, &args);
+        start_daemon(&alacritty, &args, None);
     }
 
     /// Spawn URL launcher when clicking on URLs.
@@ -402,7 +402,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
             let end = self.terminal.visible_to_buffer(url.end());
             args.push(self.terminal.bounds_to_string(start, end));
 
-            start_daemon(launcher.program(), &args);
+            start_daemon(launcher.program(), &args, None);
         }
     }
 
@@ -695,6 +695,14 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
 
     fn scheduler_mut(&mut self) -> &mut Scheduler {
         self.scheduler
+    }
+
+    fn to_string(&self) -> String {
+        self.terminal.grid_to_string()
+    }
+
+    fn to_string_only_visible(&self) -> String {
+        self.terminal.grid_to_string_only_visible()
     }
 }
 
@@ -1189,7 +1197,7 @@ impl<N: Notify + OnResize> Processor<N> {
 
                         // Execute bell command.
                         if let Some(bell_command) = &processor.ctx.config.ui_config.bell.command {
-                            start_daemon(bell_command.program(), bell_command.args());
+                            start_daemon(bell_command.program(), bell_command.args(), None);
                         }
                     },
                     TerminalEvent::ClipboardStore(clipboard_type, content) => {
