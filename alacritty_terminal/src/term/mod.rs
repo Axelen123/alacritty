@@ -821,7 +821,7 @@ impl<T> Term<T> {
         cursor_cell
     }
 
-    fn grid_to_string_between(&self, y0: Line, y1: Line) -> String {
+    fn grid_to_string_between(&self, y0: Line, y1: Line, esc_seqs: bool) -> String {
         let grid = &self.grid;
 
         assert!(*y0 < grid.total_lines());
@@ -829,6 +829,7 @@ impl<T> Term<T> {
         assert!(y0 < y1);
 
         let mut s = String::with_capacity(*(y1 - y0) * *grid.cols());
+        let mut last_cell = Cell::default();
 
         for y in (*y0..*y1).rev() {
             let row = &grid[y];
@@ -848,8 +849,25 @@ impl<T> Term<T> {
             }
 
             // Add the chars to the string.
-            for x in 0..line_len {
-                s.push(row[Column(x)].c);
+            if esc_seqs {
+                for x in 0..line_len {
+                    let cell = &row[Column(x)];
+                    cell.as_escape(&mut s, last_cell);
+
+                    s.push(cell.c);
+
+                    if let Some(zerowidth) = cell.zerowidth() {
+                        for zw in zerowidth.iter().take_while(|&&zw| zw != ' ') {
+                            s.push(*zw);
+                        }
+                    }
+
+                    last_cell = cell.clone();
+                }
+            } else {
+                for x in 0..line_len {
+                    s.push(row[Column(x)].c);
+                }
             }
 
             if !wrapline {
@@ -865,14 +883,19 @@ impl<T> Term<T> {
         s
     }
 
-    pub fn grid_to_string_only_visible(&self) -> String {
-        self.grid_to_string_between(Line(self.grid.display_offset()), self.grid.screen_lines())
+    pub fn grid_to_string_only_visible(&self, esc_seqs: bool) -> String {
+        self.grid_to_string_between(
+            Line(self.grid.display_offset()),
+            self.grid.screen_lines(),
+            esc_seqs,
+        )
     }
 
-    pub fn grid_to_string(&self) -> String {
+    pub fn grid_to_string(&self, esc_seqs: bool) -> String {
         self.grid_to_string_between(
             Line(0),
             Line(*self.grid.screen_lines() + self.grid.history_size()),
+            esc_seqs,
         )
     }
 }
@@ -2316,13 +2339,13 @@ mod tests {
         let mut term = Term::new(&MockConfig::default(), size, Mock);
         mem::swap(&mut term.grid, &mut grid);
 
-        assert_eq!(term.grid_to_string(), "1 2\n3456abcd\nefgh\n");
-        assert_eq!(term.grid_to_string_only_visible(), "1 2\n3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string(false), "1 2\n3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(false), "1 2\n3456abcd\nefgh\n");
 
         term.grid.scroll_up(&(Line(0)..Line(4)), Line(1));
 
-        assert_eq!(term.grid_to_string(), "1 2\n3456abcd\nefgh\n");
-        assert_eq!(term.grid_to_string_only_visible(), "3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string(false), "1 2\n3456abcd\nefgh\n");
+        assert_eq!(term.grid_to_string_only_visible(false), "3456abcd\nefgh\n");
     }
 
     #[test]

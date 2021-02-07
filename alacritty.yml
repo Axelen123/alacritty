@@ -648,6 +648,9 @@
 #    - `input` (optional), either VisibleText or AllText. If specified, then
 #      respectively either the visible text in the terminal or all the text
 #      including the scrollback is piped to the command's stdin.
+#    - `esc_seqs` (optional), if set to `true`, then alacritty will also
+#      pipe escape sequences. This is very slow so it should be left disabled when possible.
+#      Does nothing if `input` is unset or `None`.
 #
 #    For example: `{ program: "alacritty", args: ["-e", "vttest"] }`
 #

@@ -161,11 +161,13 @@ impl<T: EventListener> Execute<T> for Action {
                 let args = cmd.args().to_owned();
                 let input = cmd.input();
                 let program = cmd.program().to_string();
+                let esc_seqs = cmd.esc_seqs();
                 trace!("Running command {} with args {:?}", program, args);
 
+                let term = ctx.terminal();
                 let input_str = input.map(|i| match i {
-                    CommandInput::VisibleText => ctx.to_string_only_visible(),
-                    CommandInput::AllText => ctx.to_string(),
+                    CommandInput::VisibleText => term.grid_to_string_only_visible(esc_seqs),
+                    CommandInput::AllText => term.grid_to_string(esc_seqs),
                 });
 
                 thread::spawn_named("command", move || {
@@ -1239,6 +1241,7 @@ mod tests {
             unimplemented!();
         }
 
+<<<<<<< HEAD
         fn to_string(&self) -> String {
             self.terminal.grid_to_string()
         }
@@ -1246,6 +1249,23 @@ mod tests {
         fn to_string_only_visible(&self) -> String {
             self.terminal.grid_to_string_only_visible()
         }
+||||||| parent of 8716491 (Add escape sequence option)
+        fn on_typing_start(&mut self) {
+            unimplemented!();
+        }
+
+        fn to_string(&self) -> String {
+            self.terminal.grid_to_string()
+        }
+
+        fn to_string_only_visible(&self) -> String {
+            self.terminal.grid_to_string_only_visible()
+        }
+=======
+        fn on_typing_start(&mut self) {
+            unimplemented!();
+        }
+>>>>>>> 8716491 (Add escape sequence option)
     }
 
     macro_rules! test_clickstate {

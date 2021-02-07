@@ -190,6 +190,8 @@ pub enum Program {
         args: Vec<String>,
         #[serde(default)]
         input: Option<CommandInput>,
+        #[serde(default)]
+        esc_seqs: bool,
     },
 }
 
@@ -212,6 +214,13 @@ impl Program {
         match self {
             Program::Just(_) => None,
             Program::WithArgs { input, .. } => *input,
+        }
+    }
+
+    pub fn esc_seqs(&self) -> bool {
+        match self {
+            Program::Just(_) => false,
+            Program::WithArgs { esc_seqs, .. } => *esc_seqs,
         }
     }
 }

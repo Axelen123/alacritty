@@ -696,14 +696,6 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     fn scheduler_mut(&mut self) -> &mut Scheduler {
         self.scheduler
     }
-
-    fn to_string(&self) -> String {
-        self.terminal.grid_to_string()
-    }
-
-    fn to_string_only_visible(&self) -> String {
-        self.terminal.grid_to_string_only_visible()
-    }
 }
 
 impl<'a, N: Notify + 'a, T: EventListener> ActionContext<'a, N, T> {
