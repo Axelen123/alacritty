@@ -143,7 +143,12 @@ fn default_shell(pw: &Passwd<'_>) -> Program {
     let shell_name = pw.shell.rsplit('/').next().unwrap();
     let argv = vec![String::from("-c"), format!("exec -a -{} {}", shell_name, pw.shell)];
 
-    Program::WithArgs { program: "/bin/bash".to_owned(), args: argv }
+    Program::WithArgs {
+        program: "/bin/bash".to_owned(),
+        args: argv,
+        input: None,
+        pipe_escape_sequences: false,
+    }
 }
 
 #[cfg(not(target_os = "macos"))]

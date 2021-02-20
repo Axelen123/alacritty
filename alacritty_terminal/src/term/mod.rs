@@ -1,6 +1,7 @@
 //! Exports the `Term` type which is a high-level API for the Grid.
 
 use std::cmp::{max, min};
+use std::num::NonZeroUsize;
 use std::ops::{Index, IndexMut, Range};
 use std::sync::Arc;
 use std::{io, mem, ptr, str};
@@ -15,7 +16,7 @@ use crate::ansi::{
 };
 use crate::config::Config;
 use crate::event::{Event, EventListener};
-use crate::grid::{Dimensions, DisplayIter, Grid, Scroll};
+use crate::grid::{Dimensions, DisplayIter, Grid, GridCell, Scroll};
 use crate::index::{self, Boundary, Column, Direction, IndexRange, Line, Point, Side};
 use crate::selection::{Selection, SelectionRange};
 use crate::term::cell::{Cell, Flags, LineLength};
@@ -812,6 +813,24 @@ impl<T> Term<T> {
         cursor_cell.flags = flags;
 
         cursor_cell
+    }
+
+    pub fn grid_collector_only_visible(
+        &self,
+        mode: CollectorMode,
+        esc_seqs: bool,
+    ) -> GridCollector {
+        GridCollector::new(
+            self,
+            Line(self.grid.display_offset()),
+            self.grid.screen_lines(),
+            mode,
+            esc_seqs,
+        )
+    }
+
+    pub fn grid_collector(&self, mode: CollectorMode, esc_seqs: bool) -> GridCollector {
+        GridCollector::new(self, Line(0), Line(self.grid.total_lines()), mode, esc_seqs)
     }
 }
 
@@ -1743,6 +1762,147 @@ impl<T: EventListener> Handler for Term<T> {
     }
 }
 
+#[derive(Copy, Clone, Debug)]
+pub enum CollectorMode {
+    Sync,
+    Async(NonZeroUsize),
+}
+
+impl From<usize> for CollectorMode {
+    fn from(value: usize) -> Self {
+        match NonZeroUsize::new(value) {
+            Some(value) => Self::Async(value),
+            None => Self::Sync,
+        }
+    }
+}
+
+pub struct GridCollector {
+    buf: String,
+    lines_per_run: usize,
+    current_line: Line,
+    target_line: Line,
+    esc_seqs: bool,
+    last_cell: Cell,
+    end: Line,
+    start: Line,
+    cols: Column,
+}
+
+impl GridCollector {
+    fn new<T>(term: &Term<T>, start: Line, end: Line, mode: CollectorMode, esc_seqs: bool) -> Self {
+        assert!(*start < term.grid.total_lines());
+        assert!(*end <= term.grid.total_lines());
+        assert!(start < end);
+
+        let total_lines = *(end - start);
+
+        let lines_per_run = match mode {
+            CollectorMode::Async(value) => min(total_lines, value.get()),
+            CollectorMode::Sync => total_lines,
+        };
+
+        let mut collector = GridCollector {
+            buf: String::new(),
+            lines_per_run,
+            current_line: Line(0),
+            target_line: start,
+            esc_seqs,
+            last_cell: Cell::default(),
+            start,
+            end,
+            cols: Column(0),
+        };
+
+        collector.reset(&term.grid);
+        collector
+    }
+
+    fn reset(&mut self, grid: &Grid<Cell>) {
+        self.cols = grid.cols();
+        self.current_line = self.end;
+        self.last_cell = Cell::default();
+
+        self.buf.clear();
+        let old_capacity = self.buf.capacity();
+        let new_capacity = *(self.end - self.start) * *self.cols;
+        if old_capacity < new_capacity {
+            self.buf.reserve_exact(new_capacity - old_capacity);
+        }
+    }
+
+    pub fn execute(&mut self, grid: &Grid<Cell>) -> bool {
+        if self.cols != grid.cols() {
+            self.reset(grid);
+        }
+
+        let y1 = self.current_line;
+        let y0 = max(y1 - min(*y1, self.lines_per_run), self.target_line);
+
+        for y in (*y0..*y1).rev() {
+            let row = &grid[y];
+            let wrapline = row.last().unwrap().flags.contains(Flags::WRAPLINE);
+            let mut line_len = 0;
+
+            // Calculate the line length. We need to do this to avoid trailing spaces.
+            if wrapline {
+                line_len = *grid.cols();
+            } else {
+                for n in (0..*grid.cols()).rev() {
+                    if !row[Column(n)].is_empty() {
+                        line_len = n + 1;
+                        break;
+                    }
+                }
+            }
+
+            // Add the chars to the string.
+            if self.esc_seqs {
+                let mut last_cell = &self.last_cell;
+
+                for x in 0..line_len {
+                    let cell = &row[Column(x)];
+                    cell.as_escape(&mut self.buf, last_cell);
+
+                    self.buf.push(cell.c);
+
+                    if let Some(zerowidth) = cell.zerowidth() {
+                        for zw in zerowidth.iter().take_while(|&&zw| zw != ' ') {
+                            self.buf.push(*zw);
+                        }
+                    }
+
+                    last_cell = cell;
+                }
+
+                self.last_cell = last_cell.clone();
+            } else {
+                for x in 0..line_len {
+                    self.buf.push(row[Column(x)].c);
+                }
+            }
+
+            if !wrapline {
+                self.buf.push('\n');
+            }
+        }
+
+        self.current_line = y0;
+        self.current_line == self.target_line
+    }
+
+    pub fn finish(mut self) -> String {
+        assert_eq!(self.current_line, self.target_line);
+
+        // Ensure that the string ends with a newline.
+        if !self.buf.ends_with('\n') {
+            self.buf.push('\n');
+        }
+
+        self.buf
+    }
+}
+
 /// Terminal version for escape sequence reports.
 ///
 /// This returns the current terminal version as a unique number based on alacritty_terminal's
@@ -2229,6 +2389,88 @@ mod tests {
         term.title = Some("Test".into());
         term.set_title(None);
         assert_eq!(term.title, None);
+    }
+
+    #[macro_export]
+    macro_rules! ansi_escape {
+        ($str:literal) => {{
+            concat!("\x1b[", $str, "m")
+        }};
+    }
+
+    #[test]
+    fn grid_collector() {
+        let mut grid = Grid::<Cell>::new(Line(4), Column(4), 1);
+        grid[Line(0)][Column(0)].c = '1';
+        grid[Line(0)][Column(1)].c = ' ';
+        grid[Line(0)][Column(2)].c = '2';
+
+        grid[Line(1)][Column(0)].c = '3';
+        grid[Line(1)][Column(0)].flags.insert(Flags::BOLD);
+        grid[Line(1)][Column(0)].fg = Color::Named(NamedColor::Red);
+        grid[Line(1)][Column(1)].c = '4';
+        grid[Line(1)][Column(1)].flags.insert(Flags::BOLD);
+        grid[Line(1)][Column(2)].c = '5';
+        grid[Line(1)][Column(2)].flags.insert(Flags::BOLD);
+        grid[Line(1)][Column(3)].c = '6';
+        grid[Line(1)][Column(3)].flags.insert(Flags::WRAPLINE);
+
+        grid[Line(2)][Column(0)].c = 'a';
+        grid[Line(2)][Column(1)].c = 'b';
+        grid[Line(2)][Column(2)].c = 'c';
+        grid[Line(2)][Column(3)].c = 'd';
+
+        grid[Line(3)][Column(0)].c = 'e';
+        grid[Line(3)][Column(1)].c = 'f';
+        grid[Line(3)][Column(2)].c = 'g';
+        grid[Line(3)][Column(3)].c = 'h';
+        grid[Line(3)][Column(3)].flags.insert(Flags::WRAPLINE);
+
+        let size = SizeInfo::new(21.0, 51.0, 3.0, 3.0, 0.0, 0.0, false);
+        let mut term = Term::new(&MockConfig::default(), size, ());
+        mem::swap(&mut term.grid, &mut grid);
+
+        macro_rules! collect {
+            ($collector:expr) => {{
+                let mut collector = $collector;
+                while !collector.execute(&term.grid) {}
+                collector.finish()
+            }};
+        }
+
+        assert_eq!(
+            collect!(term.grid_collector(CollectorMode::Sync, true)),
+            format!(
+                "1 2\n{}3{}45{}6abcd\nefgh\n",
+                ansi_escape!("31;1"),
+                ansi_escape!("39"),
+                ansi_escape!("22")
+            )
+        );
+        assert_eq!(
+            collect!(term.grid_collector(CollectorMode::from(10), false)),
+            "1 2\n3456abcd\nefgh\n"
+        );
+        assert_eq!(
+            collect!(term.grid_collector_only_visible(CollectorMode::from(1), false)),
+            "1 2\n3456abcd\nefgh\n"
+        );
+
+        term.grid.scroll_up(&(Line(0)..Line(4)), Line(1));
+
+        assert_eq!(
+            collect!(term.grid_collector(CollectorMode::from(2), true)),
+            format!(
+                "1 2\n{}3{}45{}6abcd\nefgh\n",
+                ansi_escape!("31;1"),
+                ansi_escape!("39"),
+                ansi_escape!("22")
+            )
+        );
+        assert_eq!(
+            collect!(term.grid_collector_only_visible(CollectorMode::from(3), false)),
+            "3456abcd\nefgh\n"
+        );
     }
 
     #[test]

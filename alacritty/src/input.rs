@@ -8,6 +8,8 @@
 use std::borrow::Cow;
 use std::cmp::{max, min, Ordering};
 use std::marker::PhantomData;
+use std::mem;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use log::trace;
@@ -22,12 +24,15 @@ use glutin::platform::macos::EventLoopWindowTargetExtMacOS;
 use glutin::window::CursorIcon;
 
 use alacritty_terminal::ansi::{ClearMode, Handler};
+use alacritty_terminal::config::CommandInput;
 use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point, Side};
 use alacritty_terminal::selection::SelectionType;
+use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::search::Match;
-use alacritty_terminal::term::{ClipboardType, SizeInfo, Term, TermMode};
+use alacritty_terminal::term::{ClipboardType, CollectorMode, SizeInfo, Term, TermMode};
+use alacritty_terminal::thread;
 use alacritty_terminal::vi_mode::ViMotion;
 
 use crate::clipboard::Clipboard;
@@ -80,6 +85,7 @@ pub trait ActionContext<T: EventListener> {
     fn window(&self) -> &Window;
     fn window_mut(&mut self) -> &mut Window;
     fn terminal(&self) -> &Term<T>;
+    fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>>;
     fn terminal_mut(&mut self) -> &mut Term<T>;
     fn spawn_new_instance(&mut self) {}
     fn change_font_size(&mut self, _delta: f32) {}
@@ -153,12 +159,38 @@ impl<T: EventListener> Execute<T> for Action {
                 ctx.scroll(Scroll::Bottom);
                 ctx.write_to_pty(s.clone().into_bytes())
             },
-            Action::Command(ref program) => {
-                let args = program.args();
-                let program = program.program();
+            Action::Command(ref cmd) => {
+                let args = cmd.args().to_owned();
+                let input = cmd.input();
+                let program = cmd.program().to_string();
+                let esc_seqs = cmd.esc_seqs();
+                let term = ctx.terminal();
                 trace!("Running command {} with args {:?}", program, args);
 
-                start_daemon(program, args);
+                let input = input.map(|i| match i {
+                    CommandInput::VisibleText => {
+                        term.grid_collector_only_visible(CollectorMode::Sync, esc_seqs)
+                    },
+                    CommandInput::AllText => {
+                        term.grid_collector(CollectorMode::from(*term.screen_lines()), esc_seqs)
+                    },
+                });
+
+                let term = ctx.terminal_ptr().clone();
+                thread::spawn_named("command", move || {
+                    let input = input.map(|mut collector| {
+                        let mut done = false;
+                        while !done {
+                            let term = term.lock();
+                            done = collector.execute(term.grid());
+                            mem::drop(term);
+                        }
+
+                        collector.finish()
+                    });
+
+                    start_daemon(&program, &args, input.as_deref());
+                });
             },
             Action::ToggleViMode => ctx.toggle_vi_mode(),
             Action::ViMotion(motion) => {
@@ -1132,6 +1164,10 @@ mod tests {
 
         fn terminal(&self) -> &Term<T> {
             &self.terminal
+        }
+
+        fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>> {
+            unimplemented!();
         }
 
         fn terminal_mut(&mut self) -> &mut Term<T> {

@@ -99,6 +99,68 @@ impl Cell {
             self.extra = None;
         }
     }
+
+    pub fn as_escape(&self, buf: &mut String, last: &Self) {
+        // Always push CSI introducer since it's more efficient to truncate later
+        *buf += "\x1b[";
+        let empty_len = buf.len();
+
+        self.fg.as_escape(buf, &last.fg, true);
+        self.bg.as_escape(buf, &last.bg, false);
+
+        if self.flags == last.flags {
+            if buf.len() == empty_len {
+                // Remove previously added CSI introducer if nothing changed
+                buf.truncate(empty_len - 2);
+            } else {
+                unsafe {
+                    let last_byte = buf.len() - 1;
+                    buf.as_bytes_mut()[last_byte] = b'm';
+                }
+            }
+            return;
+        }
+
+        let diff = self.flags ^ last.flags;
+
+        if diff.intersects(Flags::BOLD | Flags::DIM) {
+            if !self.flags.intersects(Flags::BOLD | Flags::DIM) {
+                *buf += "22;";
+            } else if self.flags.contains(Flags::BOLD) {
+                *buf += "1;";
+            } else {
+                *buf += "2;";
+            }
+        }
+
+        macro_rules! append_if_flags_differ {
+            ($flag:expr, $num:literal) => {{
+                if diff.contains($flag) {
+                    if self.flags.contains($flag) {
+                        *buf += concat!($num, ";");
+                    } else {
+                        *buf += concat!("2", $num, ";");
+                    }
+                }
+            }};
+        }
+
+        append_if_flags_differ!(Flags::ITALIC, 3);
+        append_if_flags_differ!(Flags::UNDERLINE, 4);
+        append_if_flags_differ!(Flags::INVERSE, 7);
+        append_if_flags_differ!(Flags::HIDDEN, 8);
+        append_if_flags_differ!(Flags::STRIKEOUT, 9);
+
+        if buf.len() == empty_len {
+            // Remove previously added CSI introducer if nothing changed
+            buf.truncate(empty_len - 2);
+        } else {
+            unsafe {
+                let last_byte = buf.len() - 1;
+                buf.as_bytes_mut()[last_byte] = b'm';
+            }
+        }
+    }
 }
 
 impl GridCell for Cell {
@@ -171,10 +233,13 @@ impl LineLength for grid::Row<Cell> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cell, LineLength};
+    use super::{Cell, Flags, LineLength};
 
+    use crate::ansi::{Color, NamedColor};
+    use crate::ansi_escape;
     use crate::grid::Row;
     use crate::index::Column;
+    use crate::term::color::Rgb;
 
     #[test]
     fn line_length_works() {
@@ -190,5 +255,60 @@ mod tests {
         row[Column(9)].flags.insert(super::Flags::WRAPLINE);
 
         assert_eq!(row.line_length(), Column(10));
+    }
+
+    #[test]
+    fn as_escape_works() {
+        let mut s = String::new();
+
+        macro_rules! assert_as_escape_eq {
+            ($cell:expr, $text:expr) => {{
+                let default = Cell::default();
+                let cell = $cell;
+                cell.as_escape(&mut s, &default);
+                default.as_escape(&mut s, &cell);
+                assert_eq!(s, $text);
+                s.clear();
+            }};
+        }
+
+        let fg_reset = ansi_escape!("39");
+        let bg_reset = ansi_escape!("49");
+
+        // Test color
+        assert_as_escape_eq!(
+            Cell { fg: Color::Indexed(100), ..Cell::default() },
+            format!("{}{}", ansi_escape!("38;5;100"), fg_reset)
+        );
+
+        assert_as_escape_eq!(
+            Cell { fg: Color::Named(NamedColor::Green), ..Cell::default() },
+            format!("{}{}", ansi_escape!("32"), fg_reset)
+        );
+
+        assert_as_escape_eq!(
+            Cell { bg: Color::Spec(Rgb { r: 5, g: 10, b: 255 }), ..Cell::default() },
+            format!("{}{}", ansi_escape!("48;2;5;10;255"), bg_reset)
+        );
+
+        let bold_reset = ansi_escape!("22");
+
+        // Test Bold
+        assert_as_escape_eq!(
+            Cell { flags: Flags::BOLD, ..Cell::default() },
+            format!("{}{}", ansi_escape!("1"), bold_reset)
+        );
+
+        // Test Dim
+        assert_as_escape_eq!(
+            Cell { flags: Flags::DIM, ..Cell::default() },
+            format!("{}{}", ansi_escape!("2"), bold_reset)
+        );
+
+        // Test Italic
+        assert_as_escape_eq!(
+            Cell { flags: Flags::ITALIC, ..Cell::default() },
+            format!("{}{}", ansi_escape!("3"), ansi_escape!("23"))
+        );
     }
 }

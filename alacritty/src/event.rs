@@ -164,6 +164,7 @@ impl Default for SearchState {
 pub struct ActionContext<'a, N, T> {
     pub notifier: &'a mut N,
     pub terminal: &'a mut Term<T>,
+    pub terminal_ptr: &'a Arc<FairMutex<Term<T>>>,
     pub clipboard: &'a mut Clipboard,
     pub mouse: &'a mut Mouse,
     pub received_count: &'a mut usize,
@@ -342,6 +343,11 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
     }
 
     #[inline]
+    fn terminal_ptr(&self) -> &Arc<FairMutex<Term<T>>> {
+        self.terminal_ptr
+    }
+
+    #[inline]
     fn terminal_mut(&mut self) -> &mut Term<T> {
         self.terminal
     }
@@ -387,7 +393,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
             args.push(arg.into());
         }
 
-        start_daemon(&alacritty, &args);
+        start_daemon(&alacritty, &args, None);
     }
 
     /// Spawn URL launcher when clicking on URLs.
@@ -402,7 +408,7 @@ impl<'a, N: Notify + 'a, T: EventListener> input::ActionContext<T> for ActionCon
             let end = self.terminal.visible_to_buffer(url.end());
             args.push(self.terminal.bounds_to_string(start, end));
 
-            start_daemon(launcher.program(), &args);
+            start_daemon(launcher.program(), &args, None);
         }
     }
 
@@ -993,8 +999,11 @@ impl<N: Notify + OnResize> Processor<N> {
     }
 
     /// Run the event loop.
-    pub fn run<T>(&mut self, terminal: Arc<FairMutex<Term<T>>>, mut event_loop: EventLoop<Event>)
-    where
+    pub fn run<T>(
+        &mut self,
+        terminal_ptr: Arc<FairMutex<Term<T>>>,
+        mut event_loop: EventLoop<Event>,
+    ) where
         T: EventListener,
     {
         let mut scheduler = Scheduler::new();
@@ -1057,13 +1066,14 @@ impl<N: Notify + OnResize> Processor<N> {
                 },
             }
 
-            let mut terminal = terminal.lock();
+            let mut terminal = terminal_ptr.lock();
 
             let mut display_update_pending = DisplayUpdate::default();
             let old_is_searching = self.search_state.history_index.is_some();
 
             let context = ActionContext {
                 terminal: &mut terminal,
+                terminal_ptr: &terminal_ptr,
                 notifier: &mut self.notifier,
                 mouse: &mut self.mouse,
                 clipboard: &mut clipboard,
@@ -1123,7 +1133,7 @@ impl<N: Notify + OnResize> Processor<N> {
 
         // Write ref tests to disk.
         if self.config.ui_config.debug.ref_test {
-            self.write_ref_test_results(&terminal.lock());
+            self.write_ref_test_results(&terminal_ptr.lock());
         }
     }
 
@@ -1189,7 +1199,7 @@ impl<N: Notify + OnResize> Processor<N> {
 
                         // Execute bell command.
                         if let Some(bell_command) = &processor.ctx.config.ui_config.bell.command {
-                            start_daemon(bell_command.program(), bell_command.args());
+                            start_daemon(bell_command.program(), bell_command.args(), None);
                         }
                     },
                     TerminalEvent::ClipboardStore(clipboard_type, content) => {
