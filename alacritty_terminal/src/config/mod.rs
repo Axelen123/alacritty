@@ -174,6 +174,41 @@ impl From<CursorBlinking> for bool {
     }
 }
 
+#[derive(ConfigDeserialize, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CommandInputTarget {
+    VisibleText,
+    AllText,
+}
+
+#[derive(Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum CommandInput {
+    Just(CommandInputTarget),
+    WithEscapeSequences {
+        target: CommandInputTarget,
+        #[serde(default)]
+        pipe_escape_sequences: bool,
+    },
+}
+
+impl CommandInput {
+    pub fn target(&self) -> CommandInputTarget {
+        match self {
+            CommandInput::Just(target) => *target,
+            CommandInput::WithEscapeSequences { target, .. } => *target,
+        }
+    }
+
+    pub fn esc_seqs(&self) -> bool {
+        match self {
+            CommandInput::Just(_) => false,
+            CommandInput::WithEscapeSequences { pipe_escape_sequences, .. } => {
+                *pipe_escape_sequences
+            },
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum Program {
@@ -182,6 +217,8 @@ pub enum Program {
         program: String,
         #[serde(default)]
         args: Vec<String>,
+        #[serde(default)]
+        input: Option<CommandInput>,
     },
 }
 
@@ -197,6 +234,13 @@ impl Program {
         match self {
             Program::Just(_) => &[],
             Program::WithArgs { args, .. } => args,
+        }
+    }
+
+    pub fn input(&self) -> Option<CommandInput> {
+        match self {
+            Program::Just(_) => None,
+            Program::WithArgs { input, .. } => *input,
         }
     }
 }

@@ -762,6 +762,72 @@ pub enum Color {
     Indexed(u8),
 }
 
+impl Color {
+    pub(crate) fn as_escape(&self, buf: &mut String, last: &Self, foreground: bool) {
+        if self == last {
+            return;
+        }
+
+        match self {
+            Color::Named(color) => {
+                match color {
+                    NamedColor::Foreground | NamedColor::Background => {
+                        if foreground {
+                            *buf += "39;";
+                        } else {
+                            *buf += "49;";
+                        }
+                    },
+                    &color => {
+                        // Colors outside of u8 range should never be set pre-rendering.
+                        debug_assert!(color as usize <= std::u8::MAX as usize);
+
+                        match (color <= NamedColor::White, foreground) {
+                            (true, true) => buf.push('3'),
+                            (true, false) => buf.push('4'),
+                            (false, true) => buf.push('9'),
+                            (false, false) => *buf += "10",
+                        }
+
+                        u8_write_string(buf, color as u8);
+                    },
+                }
+            },
+            Color::Spec(color) => {
+                if foreground {
+                    *buf += "38;2;";
+                } else {
+                    *buf += "48;2;";
+                }
+
+                u8_write_string(buf, color.r);
+                u8_write_string(buf, color.g);
+                u8_write_string(buf, color.b);
+            },
+            Color::Indexed(color) => {
+                if foreground {
+                    *buf += "38;5;";
+                } else {
+                    *buf += "48;5;";
+                }
+
+                u8_write_string(buf, *color);
+            },
+        }
+    }
+}
+
+mod conversion_array {
+    #![allow(clippy::all)]
+    include!(concat!(env!("OUT_DIR"), "/ansi_array.rs"));
+}
+
+/// Optimized u8 to String conversion.
+#[inline]
+fn u8_write_string(buf: &mut String, num: u8) {
+    *buf += unsafe { conversion_array::U8_TO_STR.get_unchecked(num as usize) };
+}
+
 /// Terminal character attributes.
 #[derive(Debug, Eq, PartialEq)]
 pub enum Attr {
